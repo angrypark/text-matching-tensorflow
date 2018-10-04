@@ -32,7 +32,7 @@ class Preprocessor:
     def __init__(self, config):
         self.min_length = config.min_length
         self.max_length = config.max_length
-        self.normalizer = getattr(normalizers, config.normalizer)(config)
+        self.normalizer = getattr(normalizers, config.normalizer)()
         self.tokenizer = getattr(tokenizers, config.tokenizer)(config)
         self.vectorizer = vectorizers.Vectorizer(self.tokenizer, config)
         self.feature_extractor = None
@@ -50,3 +50,4 @@ class Preprocessor:
         indexed_sentence = self._preprocess(sentence)
         padded_sentence = pad_sequences([indexed_sentence], maxlen=self.max_length)[0]
         return padded_sentence
+
