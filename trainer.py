@@ -191,8 +191,11 @@ class MatchingModelTrainer(BaseTrainer):
         loop = tqdm(range(1, num_batches_per_epoch + 1))
 
         for step in loop:
-            feed_dict = {model.dropout_keep_prob: 1,
-                         model.num_negative_samples: self.config.num_negative_samples}
+            feed_dict = {model.lstm_dropout_keep_prob: 1,
+                         model.num_negative_samples: 4,
+                         model.embed_dropout_keep_prob: 1,
+                         model.add_echo: False
+                         }
             loss, score = sess.run([model.loss, model.accuracy], feed_dict=feed_dict)
             losses.append(loss)
             scores.append(score)

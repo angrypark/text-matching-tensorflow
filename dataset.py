@@ -26,7 +26,8 @@ class Dataset:
     def get_data_iterator(self, index_table, mode=tf.contrib.learn.ModeKeys.TRAIN):
         if mode==tf.contrib.learn.ModeKeys.TRAIN:
             train_set = tf.data.TextLineDataset(self.train_fnames)
-            train_set = train_set.map(lambda line: self.parse_single_line_old(line, index_table, self.max_length))
+            train_set = train_set.map(lambda line: self.parse_single_line_old(line, index_table, self.max_length), 
+                                      num_parallel_calls=10)
             train_set = train_set.shuffle(buffer_size=10)
             train_set = train_set.batch(self.batch_size)
             train_set = train_set.prefetch(1)
@@ -37,7 +38,8 @@ class Dataset:
 
         elif mode==tf.contrib.learn.ModeKeys.EVAL:
             val_set = tf.data.TextLineDataset(self.val_fnames)
-            val_set = val_set.map(lambda line: self.parse_single_line_old(line, index_table, self.max_length))
+            val_set = val_set.map(lambda line: self.parse_single_line_old(line, index_table, self.max_length),
+                                  num_parallel_calls=10)
             val_set = val_set.shuffle(buffer_size=10)
             val_set = val_set.batch(self.batch_size)
 
@@ -66,15 +68,12 @@ class Dataset:
         splited = tf.string_split([line], delimiter="\t")
         query = tf.concat([["<SOS>"], tf.string_split([splited.values[1]], delimiter=" ").values, ["<EOS>"]], axis=0)
         reply = tf.concat([["<SOS>"], tf.string_split([splited.values[2]], delimiter=" ").values, ["<EOS>"]], axis=0)
-        query_length = tf.expand_dims(tf.shape(query)[0], -1)
-        reply_length = tf.expand_dims(tf.shape(reply)[0], -1)
+        query_length = tf.shape(query)[0]
+        reply_length = tf.shape(reply)[0]
         
         paddings = tf.constant([[0, 0],[0, max_length]])
         padded_query = tf.slice(tf.pad([query], paddings, constant_values="<PAD>"), [0, 0], [-1, max_length])
         padded_reply = tf.slice(tf.pad([reply], paddings, constant_values="<PAD>"), [0, 0], [-1, max_length])
-        
-        query_length = tf.expand_dims(tf.shape(padded_query)[0], -1)
-        reply_length = tf.expand_dims(tf.shape(padded_reply)[0], -1)
         
         indexed_query = tf.squeeze(index_table.lookup(padded_query))
         indexed_reply = tf.squeeze(index_table.lookup(padded_reply))

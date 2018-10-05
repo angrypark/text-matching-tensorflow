@@ -6,9 +6,9 @@ from models.base import Model
 from models.model_helper import get_embeddings, make_negative_mask
 
 
-class DualEncoderLSTM(Model):
+class DualEncoderLSTMCNN(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(DualEncoderLSTM, self).__init__(dataset, config)
+        super(DualEncoderLSTMCNN, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -64,7 +64,7 @@ class DualEncoderLSTM(Model):
             self.optimizer = tf.train.AdamOptimizer(learning_rate)
 
         # embedding layer
-        with tf.variable_scope("embedding"):
+        with tf.variable_scope("embedding_layer"):
             embeddings = tf.Variable(get_embeddings(self.config.vocab_list,
                                                     self.config.pretrained_embed_dir,
                                                     self.config.vocab_size,
