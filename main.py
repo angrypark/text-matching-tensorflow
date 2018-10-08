@@ -40,22 +40,33 @@ args.add_argument("--tokenizer", type=str, default="DummyTokenizer")
 args.add_argument("--vocab_size", type=int, default=90000)
 args.add_argument("--vocab_list", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/vocab_list.sent_piece_100K.txt")
 
-# Model hyperparameters
-args.add_argument("--embed_dim", type=int, default=256)
-args.add_argument("--embed_dropout_keep_prob", type=float, default=0.9)
-args.add_argument("--learning_rate", type=float, default=1e-3)
-args.add_argument("--min_length", type=int, default=1)
-args.add_argument("--max_length", type=int, default=20)
-args.add_argument("--lstm_dropout_keep_prob", type=float, default=0.9)
-
-# Model : DualEncoderLSTM
-args.add_argument("--lstm_dim", type=int, default=512)
+# Data specification
 args.add_argument("--batch_size", type=int, default=512)
 args.add_argument("--num_epochs", type=int, default=5)
 args.add_argument("--evaluate_every", type=int, default=20000)
 args.add_argument("--save_every", type=int, default=20000)
 args.add_argument("--max_to_keep", type=int, default=5)
 args.add_argument("--shuffle", type=bool, default=True)
+
+# Embedding, learning rate specification
+args.add_argument("--embed_dim", type=int, default=256)
+args.add_argument("--embed_dropout_keep_prob", type=float, default=0.9)
+args.add_argument("--min_length", type=int, default=1)
+args.add_argument("--max_length", type=int, default=20)
+args.add_argument("--learning_rate", type=float, default=1e-3)
+
+# Model : DualEncoderLSTM
+args.add_argument("--lstm_dim", type=int, default=512)
+args.add_argument("--lstm_dropout_keep_prob", type=float, default=0.9)
+
+# Model : CNNMatch
+args.add_argument("--filter_sizes", type=str, default="2,3")
+args.add_argument("--num_filters", type=int, default=64)
+args.add_argument("--num_hidden", type=int, default=128)
+args.add_argument("--hidden_dropout_keep_prob", type=float, default=0.9)
+
+# Weak Supervision
+args.add_argument("--weak_supervision", type=bool, default=False)
 
 # Sampling parameters
 args.add_argument("--negative_sampling", type=str, default="random", choices=["random", "hard", "weighted"])

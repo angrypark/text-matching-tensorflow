@@ -36,18 +36,19 @@ class Preprocessor:
         self.tokenizer = getattr(tokenizers, config.tokenizer)(config)
         self.vectorizer = vectorizers.Vectorizer(self.tokenizer, config)
         self.feature_extractor = None
+        self.build_preprocessor()
 
-    def build_preprocessor(self, lines):
-        self.vectorizer.build_vectorizer(lines)
+    def build_preprocessor(self):
+        self.vectorizer.build_vectorizer()
 
     def _preprocess(self, sentence):
         normalized_sentence = self.normalizer.normalize(sentence)
         tokenized_sentence = ["<SOS>"] + self.tokenizer.tokenize(normalized_sentence) + ["<EOS>"]
         indexed_sentence = [self.vectorizer.indexer(token) for token in tokenized_sentence]
-        return indexed_sentence
+        return indexed_sentence, len(indexed_sentence)
 
     def preprocess(self, sentence):
-        indexed_sentence = self._preprocess(sentence)
+        indexed_sentence, length = self._preprocess(sentence)
         padded_sentence = pad_sequences([indexed_sentence], maxlen=self.max_length)[0]
-        return padded_sentence
+        return padded_sentence, length
 

@@ -64,6 +64,65 @@ class MatchingModelTrainer(BaseTrainer):
         # train, val iterator
         self.train_iterator = None
         self.val_iterator = None
+        
+        # load pretrained model
+        self.infer_preprocessor = None
+        
+        self.use_weak_supervision = config.weak_supervision
+        
+        if self.use_weak_supervision:
+            self.infer_model, self.infer_sess = self._load_pretrained_model()
+    
+    def _load_pretrained_model(self):
+        from collections import namedtuple
+        import sys
+        sys.path.append("/home/angrypark/")
+        
+        from tmp.data_loader import DataGenerator as _Dataset
+        from tmp.trainer import MatchingModelTrainer as _Trainer
+        from tmp.preprocessor import DynamicPreprocessor as _Preprocessor
+        from tmp.utils.dirs import create_dirs as _create_dirs
+        from tmp.utils.logger import SummaryWriter as _SummaryWriter
+        from tmp.utils.config import load_config, save_config
+        from tmp.models.base import get_model as _get_model
+        from tmp.utils.utils import JamoProcessor
+        from tmp.text.tokenizers import SentencePieceTokenizer
+        from tmp.models.dual_encoder_lstm import DualEncoderLSTM as Model
+        
+        Config = namedtuple("config", ["sent_piece_model"])
+        config = Config("/media/scatter/scatterdisk/tokenizer/sent_piece.100K.model")
+        processor = JamoProcessor()
+        tokenizer = SentencePieceTokenizer(config)
+        
+        base_dir = "/media/scatter/scatterdisk/reply_matching_model/runs/delstm_1024_nsrandom4_lr1e-3/"
+        config_dir = base_dir + "config.json"
+        best_model_dir = base_dir + "best_loss/best_loss.ckpt"
+        model_config = load_config(config_dir)
+        model_config.add_echo = False
+        preprocessor = _Preprocessor(model_config)
+        preprocessor.build_preprocessor()
+
+        infer_config = load_config(config_dir)
+        setattr(infer_config, "tokenizer", "SentencePieceTokenizer")
+        setattr(infer_config, "soynlp_scores", "/media/scatter/scatterdisk/tokenizer/soynlp_scores.sol.100M.txt")
+        infer_preprocessor = _Preprocessor(infer_config)
+        infer_preprocessor.build_preprocessor()
+        graph = tf.Graph()
+        tf_config = tf.ConfigProto()
+        tf_config.gpu_options.allow_growth = True
+
+        with graph.as_default():
+            data = _Dataset(preprocessor, model_config)
+            infer_model = Model(data, model_config)
+            infer_sess = tf.Session(config=tf_config, graph=graph)
+            infer_sess.run(tf.global_variables_initializer())
+            infer_sess.run(tf.local_variables_initializer())
+            infer_sess.run(infer_model.data_iterator.initializer)
+            infer_sess.run(tf.tables_initializer())
+
+        infer_model.load(infer_sess, model_dir=best_model_dir)
+        self.infer_preprocessor = infer_preprocessor
+        return infer_model, infer_sess
 
     def build_graph(self, name="train"):
         graph = tf.Graph()
@@ -87,16 +146,27 @@ class MatchingModelTrainer(BaseTrainer):
         return model, sess
 
     def train_step(self, model, sess):
-        # batch_queries, batch_replies, \
-        # batch_queries_lengths, batch_replies_lengths = self.train_iterator.get_next()
-
-        # cur_batch_length = len(batch_queries)
-
+        
         feed_dict = {model.lstm_dropout_keep_prob: self.config.lstm_dropout_keep_prob,
                      model.num_negative_samples: self.config.num_negative_samples,
                      model.embed_dropout_keep_prob: self.config.embed_dropout_keep_prob,
                      model.add_echo: (self.config.add_echo) & (self.global_step > 100000)
                      }
+        
+        if self.use_weak_supervision:
+            input_queries, input_replies, query_lengths, reply_lengths, weak_distances = \
+            self.infer_sess.run([self.infer_model.input_queries, 
+                                 self.infer_model.input_replies, 
+                                 self.infer_model.queries_lengths, 
+                                 self.infer_model.replies_lengths, self.infer_model.distances], 
+                                feed_dict={self.infer_model.dropout_keep_prob: 1, 
+                                           self.infer_model.add_echo: False})
+            feed_dict.update({model.input_queries: input_queries, 
+                              model.input_replies: input_replies, 
+                              model.query_lengths: query_lengths, 
+                              model.reply_lengths: reply_lengths, 
+                              model.weak_distances: weak_distances})
+            
         _, loss, score = sess.run([model.train_step, model.loss, model.accuracy],
                                   feed_dict=feed_dict)
 
