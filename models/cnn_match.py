@@ -112,21 +112,7 @@ class CNNMatch(Model):
                                             padding="VALID", 
                                             name="pool")
                     replies_pooled_outputs.append(pooled)
-                    
-                    # conv_echo = tf.nn.conv2d(queries_embedded, 
-                    #                     W, 
-                    #                     strides=[1, 1, 1, 1], 
-                    #                     padding="VALID", 
-                    #                     name="conv", 
-                    #                     reuse=True)
-                    # h_echo = tf.nn.relu(tf.nn.bias_add(conv_echo, b), name="relu_echo")
-                    # pooled_echo = tf.nn.max_pool(h_echo, 
-                    #                         ksize=[1, self.config.max_length - filter_size + 1, 1, 1], 
-                    #                         strides=[1, 1, 1, 1], 
-                    #                         padding="VALID", 
-                    #                         name="pool_echo")
-                    # echo_pooled_outputs.append(pooled_echo)
-        
+
         # combine all pooled outputs
         num_filters_total = self.config.num_filters * len(self.filter_sizes)
         self.queries_encoded = tf.reshape(tf.concat(queries_pooled_outputs, 3), 
@@ -140,10 +126,15 @@ class CNNMatch(Model):
                                 initializer=tf.contrib.layers.xavier_initializer())
             self.queries_transformed = tf.matmul(self.queries_encoded, M)
 
-        with tf.name_scope("sampling"):
+        with tf.name_scope("negative_sampling"):
             l2_loss = tf.constant(0.0)
             self.queries_transformed_negatives = tf.tile(self.queries_transformed, [self.num_negative_samples, 1])
-            self.replies_encoded_negatives = tf.random_shuffle(tf.tile(self.replies_encoded, [self.num_negative_samples, 1]))
+            
+            random_indices = tf.contrib.framework.sort(
+                tf.nn.top_k(tf.random_uniform([cur_batch_length]), k=cur_batch_length).indices)
+            
+            self.replies_encoded_negatives = tf.gather(tf.tile(self.replies_encoded, [self.num_negative_samples, 1]), 
+                                                       indices=random_indices)
             
         with tf.variable_scope("similarities"):
             self.positive_similarities = tf.reduce_sum(tf.multiply(self.queries_transformed, self.replies_encoded), 
@@ -153,7 +144,7 @@ class CNNMatch(Model):
                                                                    self.replies_encoded_negatives), 
                                                        axis=1, 
                                                        keepdims=True)
-            self.positive_input = tf.concat([self.queries_transformed, 
+            self.positive_input = tf.concat([self.queries_transformed,
                                              self.positive_similarities, 
                                              self.replies_encoded], 1, name="positive_input")
             self.negative_input = tf.concat([self.queries_transformed_negatives, 

@@ -166,7 +166,11 @@ class MatchingModelTrainer(BaseTrainer):
                               model.query_lengths: query_lengths, 
                               model.reply_lengths: reply_lengths, 
                               model.weak_distances: weak_distances})
-            
+        
+            if (weak_distances.shape[0] != input_queries.shape[0]) and (weak_distances.shape[1] != input_queries.shape[0]):
+                self.logger.info("Wrong Weak Distance!!!!")
+                return None, None
+        
         _, loss, score = sess.run([model.train_step, model.loss, model.accuracy],
                                   feed_dict=feed_dict)
 
@@ -209,6 +213,8 @@ class MatchingModelTrainer(BaseTrainer):
                     continue
 
                 loss, score = self.train_step(train_model, train_sess)
+                if loss==None:
+                    continue
 
                 # increment global step
                 self.global_step += 1
