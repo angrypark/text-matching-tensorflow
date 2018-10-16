@@ -154,7 +154,7 @@ class DualEncoderLSTM(Model):
             self.echo_probs = tf.sigmoid(self.echo_logits)
 
             self.probs = tf.sigmoid(self.logits)
-            self.predictions = tf.cast(self.probs>0.5, dtype=tf.int32)
+            self.predictions = tf.cast(self.probs > 0.5, dtype=tf.int32)
             
         with tf.variable_scope("loss"):
             self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))

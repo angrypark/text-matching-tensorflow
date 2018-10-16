@@ -28,29 +28,39 @@ class CNNMatch(Model):
 
         # get data iterator
         self.data_iterator = self.data.get_data_iterator(index_table, mode=self.mode)
+        self.negatives_iterator = self.data.get_negatives_iterator(index_table, mode=self.mode)
 
         # get inputs
         with tf.variable_scope("inputs"):
             # get next batch if there is no feeded data
             next_batch = self.data_iterator.get_next()
+            next_negatives = self.negatives_iterator.get_next()
+            
             self.input_queries = tf.placeholder_with_default(next_batch["input_queries"],
                                                              [None, self.config.max_length],
                                                              name="input_queries")
             self.input_replies = tf.placeholder_with_default(next_batch["input_replies"],
                                                              [None, self.config.max_length],
                                                              name="input_replies")
+            self.input_negatives = tf.placeholder_with_default(next_negatives["input_negatives"], 
+                                                               [None, self.config.max_length], 
+                                                               name="input_negatives")
             self.query_lengths = tf.placeholder_with_default(tf.squeeze(next_batch["query_lengths"]),
                                                              [None],
                                                              name="query_lengths")
             self.reply_lengths = tf.placeholder_with_default(tf.squeeze(next_batch["reply_lengths"]),
                                                              [None],
                                                              name="reply_lengths")
+            self.negative_lengths = tf.placeholder_with_default(tf.squeeze(next_negatives["negative_lengths"]),
+                                                             [None],
+                                                             name="negative_lengths")
 
             # get hyperparams
             self.embed_dropout_keep_prob = tf.placeholder(tf.float32, name="embed_dropout_keep_prob")
             self.lstm_dropout_keep_prob = tf.placeholder(tf.float32, name="lstm_dropout_keep_prob")
             self.num_negative_samples = tf.placeholder(tf.int32, name="num_negative_samples")
             self.hidden_dropout_keep_prob = tf.placeholder(tf.float32, name="hidden_dropout_keep_prob")
+            self.add_echo = tf.placeholder(tf.bool, name="add_echo")
             
         with tf.variable_scope("properties"):
             # length properties
@@ -72,46 +82,63 @@ class CNNMatch(Model):
                                      name="embeddings")
             queries_embedded = tf.expand_dims(tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_queries, name="queries_embedded")), -1)
             replies_embedded = tf.expand_dims(tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_replies, name="replies_embedded")), -1)
+            negatives_embedded = tf.expand_dims(tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_negatives, name="negatives_embedded")), -1)
 
         # build CNN layer
         with tf.variable_scope("convolution_layer"):
             queries_pooled_outputs = list()
             replies_pooled_outputs = list()
+            negatives_pooled_outputs = list()
+            
             for i, filter_size in enumerate(self.filter_sizes):
                 filter_shape = [filter_size, self.config.embed_dim, 1, self.config.num_filters]
-                with tf.name_scope("conv-maxpool-query-{}".format(filter_size)):
-                    W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
-                    b = tf.Variable(tf.constant(0.1, shape=[self.config.num_filters]), name="b")
-                    conv = tf.nn.conv2d(queries_embedded, 
-                                        W, 
-                                        strides=[1, 1, 1, 1], 
-                                        padding="VALID", 
+                with tf.variable_scope("conv-maxpool-query-{}".format(filter_size)):
+                    W = tf.get_variable("W", shape=filter_shape, initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    b = tf.get_variable("b", shape=[self.config.num_filters], initializer=tf.constant_initializer(0.1))
+                    conv = tf.nn.conv2d(queries_embedded,
+                                        W,
+                                        strides=[1, 1, 1, 1],
+                                        padding="VALID",
                                         name="conv")
                     h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-                    pooled = tf.nn.max_pool(h, 
+                    pooled = tf.nn.max_pool(h,
                                             ksize=[1, self.config.max_length - filter_size + 1, 1, 1], 
                                             strides=[1, 1, 1, 1], 
                                             padding="VALID", 
                                             name="pool")
                     queries_pooled_outputs.append(pooled)
                     
-                with tf.name_scope("conv-maxpool-reply-{}".format(filter_size)):
-                    W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
-                    b = tf.Variable(tf.constant(0.1, shape=[self.config.num_filters]), name="b")
-                    conv = tf.nn.conv2d(replies_embedded, 
+                with tf.variable_scope("conv-maxpool-reply-{}".format(filter_size)):
+                    W = tf.get_variable("W", shape=filter_shape, initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    b = tf.get_variable("b", shape=[self.config.num_filters], initializer=tf.constant_initializer(0.1))
+                    conv_1 = tf.nn.conv2d(replies_embedded, 
                                         W, 
                                         strides=[1, 1, 1, 1], 
                                         padding="VALID", 
-                                        name="conv", 
-                                        # reuse=True,
-                                       )
-                    h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-                    pooled = tf.nn.max_pool(h, 
+                                        name="conv")
+                    h_1 = tf.nn.relu(tf.nn.bias_add(conv_1, b), name="relu")
+                    pooled_1 = tf.nn.max_pool(h_1, 
                                             ksize=[1, self.config.max_length - filter_size + 1, 1, 1], 
                                             strides=[1, 1, 1, 1], 
                                             padding="VALID", 
                                             name="pool")
-                    replies_pooled_outputs.append(pooled)
+                    replies_pooled_outputs.append(pooled_1)
+                
+                with tf.variable_scope("conv-maxpool-reply-{}".format(filter_size), reuse=True):
+                    W = tf.get_variable("W", shape=filter_shape)
+                    b = tf.get_variable("b", shape=[self.config.num_filters])
+                    conv_2 = tf.nn.conv2d(negatives_embedded, 
+                                          W, 
+                                          strides=[1, 1, 1, 1], 
+                                          padding="VALID", 
+                                          name="conv")
+                    h_2 = tf.nn.relu(tf.nn.bias_add(conv_2, b), name="relu")
+                    pooled_2 = tf.nn.max_pool(h_2, 
+                                            ksize=[1, self.config.max_length - filter_size + 1, 1, 1], 
+                                            strides=[1, 1, 1, 1], 
+                                            padding="VALID", 
+                                            name="pool")
+                    negatives_pooled_outputs.append(pooled_2)
 
         # combine all pooled outputs
         num_filters_total = self.config.num_filters * len(self.filter_sizes)
@@ -119,6 +146,8 @@ class CNNMatch(Model):
                                           [-1, num_filters_total], name="queries_encoded")
         self.replies_encoded = tf.reshape(tf.concat(replies_pooled_outputs, 3), 
                                           [-1, num_filters_total], name="replies_encoded")
+        self.negatives_encoded = tf.reshape(tf.concat(negatives_pooled_outputs, 3), 
+                                            [-1, num_filters_total], name="negatives_encoded")
         
         with tf.variable_scope("dense_layer"):
             M = tf.get_variable("M", 
@@ -130,18 +159,13 @@ class CNNMatch(Model):
             l2_loss = tf.constant(0.0)
             self.queries_transformed_negatives = tf.tile(self.queries_transformed, [self.num_negative_samples, 1])
             
-            random_indices = tf.contrib.framework.sort(
-                tf.nn.top_k(tf.random_uniform([cur_batch_length]), k=cur_batch_length).indices)
-            
-            self.replies_encoded_negatives = tf.gather(tf.tile(self.replies_encoded, [self.num_negative_samples, 1]), 
-                                                       indices=random_indices)
-            
         with tf.variable_scope("similarities"):
-            self.positive_similarities = tf.reduce_sum(tf.multiply(self.queries_transformed, self.replies_encoded), 
+            self.positive_similarities = tf.reduce_sum(tf.multiply(self.queries_transformed, 
+                                                                   self.replies_encoded), 
                                                        axis=1, 
                                                        keepdims=True)
             self.negative_similarities = tf.reduce_sum(tf.multiply(self.queries_transformed_negatives,
-                                                                   self.replies_encoded_negatives), 
+                                                                   self.negatives_encoded),
                                                        axis=1, 
                                                        keepdims=True)
             self.positive_input = tf.concat([self.queries_transformed,
@@ -149,19 +173,21 @@ class CNNMatch(Model):
                                              self.replies_encoded], 1, name="positive_input")
             self.negative_input = tf.concat([self.queries_transformed_negatives, 
                                              self.negative_similarities, 
-                                             self.replies_encoded_negatives], 1, name="negative_input")
+                                             self.negatives_encoded], 1, name="negative_input")
         
-        with tf.name_scope("hidden_layer"):
+        with tf.variable_scope("hidden_layer"):
             W = tf.get_variable("W_hidden", 
                                 shape=[2*num_filters_total+1, self.config.num_hidden], 
                                 initializer=tf.contrib.layers.xavier_initializer())
-            b = tf.Variable(tf.constant(0.1, shape=[self.config.num_hidden]), name="b")
+            b = tf.get_variable("b", 
+                                shape=[self.config.num_hidden], 
+                                initializer=tf.constant_initializer(0.1))
             l2_loss += tf.nn.l2_loss(W)
             l2_loss += tf.nn.l2_loss(b)
             self.positive_hidden_output = tf.nn.relu(tf.nn.xw_plus_b(self.positive_input, W, b, name="positive_hidden_output"))
             self.negative_hidden_output = tf.nn.relu(tf.nn.xw_plus_b(self.negative_input, W, b, name="negative_hidden_output"))
         
-        with tf.name_scope("dropout"):
+        with tf.variable_scope("dropout"):
             self.positive_output_drop = tf.nn.dropout(self.positive_hidden_output, 
                                                       self.hidden_dropout_keep_prob,
                                                       name="positive_output_drop")
@@ -169,31 +195,29 @@ class CNNMatch(Model):
                                                       self.hidden_dropout_keep_prob,
                                                       name="negative_output_drop")
         
-        with tf.name_scope("output_layer"):
+        with tf.variable_scope("output_layer"):
             W = tf.get_variable("W_output", 
-                                shape=[self.config.num_hidden, 2], 
+                                shape=[self.config.num_hidden, 1], 
                                 initializer=tf.contrib.layers.xavier_initializer())
-            b = tf.Variable(tf.constant(0.1, shape=[2]), name="b")
-            l2_loss += tf.nn.l2_loss(W)
-            l2_loss += tf.nn.l2_loss(b)
-            self.positive_scores = tf.nn.xw_plus_b(self.positive_output_drop, W, b, name="positive_scores")
-            self.negative_scores = tf.nn.xw_plus_b(self.negative_output_drop, W, b, name="negative_scores")
+            b = tf.get_variable("b", 
+                                shape=[1], 
+                                initializer=tf.constant_initializer(0.1))
+            self.positive_scores = tf.nn.xw_plus_b(self.positive_output_drop, W, b, name="positive_outputs")
+            self.negative_scores = tf.nn.xw_plus_b(self.negative_output_drop, W, b, name="negative_outputs")
             
         with tf.variable_scope("prediction"):
             self.scores = tf.concat([self.positive_scores, self.negative_scores], 0)
-            self.predictions = tf.argmax(self.scores, 1, name="predictions")
-            positive_labels = tf.tile([[0, 1]], [cur_batch_length, 1])
-            negative_labels = tf.tile([[1, 0]], [cur_batch_length*self.num_negative_samples, 1])
-            self.labels = tf.concat([positive_labels, negative_labels], 0)
+            self.probs = tf.sigmoid(self.scores, name="probs")
+            self.predictions = tf.cast(self.probs > 0.5, dtype=tf.int32)
+            positive_labels = tf.ones_like(self.positive_scores)
+            negative_labels = tf.zeros_like(self.negative_scores)
+            self.labels = tf.concat([positive_labels, negative_labels], axis=0)
             
         with tf.variable_scope("loss"):
-            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.labels, 
-                                                                                  logits=self.scores))
-            gvs = self.optimizer.compute_gradients(self.loss)
-            capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
-            self.train_step = self.optimizer.apply_gradients(capped_gvs)
-            # self.train_step = self.optimizer.minimize(self.loss)
+            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.scores)
+            self.loss = tf.reduce_mean(losses)
+            self.train_step = self.optimizer.minimize(self.loss)
             
         with tf.variable_scope("score"):
-            correct_predictions = tf.equal(self.predictions, tf.argmax(self.labels, 1))
+            correct_predictions = tf.equal(self.predictions, tf.to_int32(self.labels))
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")

@@ -6,9 +6,9 @@ from models.base import Model
 from models.model_helper import get_embeddings, make_negative_mask
 
 
-class DualEncoderLSTMWeakSupervision(Model):
+class DualEncoderLSTMDense(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(DualEncoderLSTMWeakSupervision, self).__init__(dataset, config)
+        super(DualEncoderLSTMDense, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -44,15 +44,12 @@ class DualEncoderLSTMWeakSupervision(Model):
             self.reply_lengths = tf.placeholder_with_default(tf.squeeze(next_batch["reply_lengths"]),
                                                              [None],
                                                              name="reply_lengths")
-            self.weak_distances = tf.placeholder(tf.float32, 
-                                                 [None, None], 
-                                                 name="weak_distances")
 
             # get hyperparams
-            self.embed_dropout_keep_prob = tf.placeholder(tf.float32, name="embed_dropout_keep_prob")
+            self.embed_dropout_keep_prob = tf.placeholder(tf.float64, name="embed_dropout_keep_prob")
             self.lstm_dropout_keep_prob = tf.placeholder(tf.float32, name="lstm_dropout_keep_prob")
+            self.dense_dropout_keep_prob = tf.placeholder(tf.float32, name="dense_dropout_keep_prob")
             self.num_negative_samples = tf.placeholder(tf.int32, name="num_negative_samples")
-            self.add_echo = tf.placeholder(tf.bool, name="add_echo")
 
         with tf.variable_scope("properties"):
             # length properties
@@ -61,12 +58,11 @@ class DualEncoderLSTMWeakSupervision(Model):
             reply_max_length = tf.shape(self.input_replies)[1]
 
             # learning rate and optimizer
-            # self.optimizer = tf.train.GradientDescentOptimizer(self.config.learning_rate) # delstm1024_nsrandom9_ws_sgd_lr1e-1 
             learning_rate =  tf.train.exponential_decay(self.config.learning_rate,
                                                         self.global_step_tensor,
-                                                        decay_steps=50000, decay_rate=0.96)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate) # delstm1024_nsrandom9_ws_adam_lr1e-3
-            
+                                                        decay_steps=5000, decay_rate=0.96)
+            self.optimizer = tf.train.AdamOptimizer(learning_rate)
+
         # embedding layer
         with tf.variable_scope("embedding"):
             embeddings = tf.Variable(get_embeddings(self.config.vocab_list,
@@ -75,6 +71,9 @@ class DualEncoderLSTMWeakSupervision(Model):
                                                     self.config.embed_dim),
                                      trainable=True,
                                      name="embeddings")
+            embeddings = tf.nn.dropout(embeddings, 
+                                       keep_prob=self.embed_dropout_keep_prob, 
+                                       noise_shape=[90000, 1])
             queries_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_queries, name="queries_embedded"))
             replies_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_replies, name="replies_embedded"))
 
@@ -83,16 +82,13 @@ class DualEncoderLSTMWeakSupervision(Model):
             query_lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.lstm_dim,
                                                       forget_bias=2.0,
                                                       use_peepholes=True,
-                                                      state_is_tuple=True,
-                                                      # initializer=tf.orthogonal_initializer(),
-                                                     )
+                                                      state_is_tuple=True)
             query_lstm_cell = tf.contrib.rnn.DropoutWrapper(query_lstm_cell,
                                                            input_keep_prob=self.lstm_dropout_keep_prob)
             reply_lstm_cell = tf.nn.rnn_cell.LSTMCell(self.config.lstm_dim,
                                                       forget_bias=2.0,
                                                       use_peepholes=True,
                                                       state_is_tuple=True,
-                                                      # initializer=tf.orthogonal_initializer(),
                                                       reuse=True)
             reply_lstm_cell = tf.contrib.rnn.DropoutWrapper(reply_lstm_cell,
                                                            input_keep_prob=self.lstm_dropout_keep_prob)
@@ -120,38 +116,40 @@ class DualEncoderLSTMWeakSupervision(Model):
             self.queries_transformed = tf.matmul(self.queries_encoded, tf.cast(M, tf.float64))
 
         with tf.variable_scope("sampling"):
-            self.distances = tf.matmul(self.queries_transformed, self.replies_encoded, transpose_b=True)
-            positive_mask = tf.reshape(tf.eye(cur_batch_length), [-1])
-            negative_mask = tf.reshape(make_negative_mask(self.distances,
+            positive_indices = tf.range(cur_batch_length)
+            
+            negative_mask = tf.reshape(make_negative_mask(tf.zeros([cur_batch_length, cur_batch_length]),
                                                           method=self.config.negative_sampling,
                                                           num_negative_samples=self.num_negative_samples), [-1])
-            candidates_mask = positive_mask + negative_mask
+            negative_indices = tf.squeeze(tf.where(negative_mask))
+            positive_indices_tiled = tf.slice(tf.tile(positive_indices, [self.num_negative_samples]), 
+                                              [0], 
+                                              tf.shape(negative_indices))
             
-        with tf.variable_scope("weak_supervision"):
-            self.weak_positives = tf.gather(tf.reshape(self.weak_distances, [-1]), tf.where(positive_mask), 1)
-            self.weak_positives_tiled = tf.tile(self.weak_positives, [1, cur_batch_length])
-            self.weak_distances_normalized = tf.maximum(0., self.weak_distances * tf.reciprocal(self.weak_positives_tiled) - 1)
+            self.positive_inputs = tf.concat([self.queries_transformed, self.replies_encoded], 1)
+            self.negative_inputs = tf.concat([tf.nn.embedding_lookup(self.queries_transformed, positive_indices_tiled), 
+                                              tf.nn.embedding_lookup(self.replies_encoded, negative_indices)], 1)
 
         with tf.variable_scope("prediction"):
-            distances_flattened = tf.reshape(self.distances, [-1])
-            self.positive_logits = tf.gather(distances_flattened, tf.where(positive_mask), 1)
-            self.negative_logits = tf.gather(distances_flattened, tf.where(negative_mask), 1)            
-            self.positive_logits_tiled = tf.transpose(tf.tile(self.positive_logits, [1, cur_batch_length]))
-            self.logits = tf.concat([self.positive_logits, self.negative_logits], axis=0)
-            self.labels = tf.concat([tf.ones_like(self.positive_logits), tf.zeros_like(self.negative_logits)], axis=0)
+            positive_outputs = tf.layers.dense(self.positive_inputs, 10, tf.nn.relu, name="hidden_layer")
+            negative_outputs = tf.layers.dense(self.negative_inputs, 10, tf.nn.relu, name="hidden_layer", reuse=True)
+            
+            self.positive_logits = tf.layers.dense(positive_outputs, 1, tf.nn.relu, name="output_layer")
+            self.negative_logits = tf.layers.dense(negative_outputs, 1, tf.nn.relu, name="output_layer", reuse=True)
+            
+            self.logits = tf.concat([self.positive_logits, self.negative_logits], 0)
+            self.labels = tf.concat([tf.ones_like(self.positive_logits), tf.zeros_like(self.negative_logits)], 0)
+            
+            self.probs = tf.sigmoid(self.logits)
+            self.predictions = tf.to_int32(self.probs > 0.5, dtype=tf.int32)
             
         with tf.variable_scope("loss"):
-            self.supervised_distances = tf.maximum(0., tf.to_float(self.distances) - tf.to_float(self.positive_logits_tiled) + self.weak_distances_normalized)
-            self.loss = tf.reduce_sum(tf.gather(tf.reshape(self.supervised_distances, [-1]), tf.where(candidates_mask), 1))
-            
-            #gvs = self.optimizer.compute_gradients(self.loss)
-            #capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
-            #self.train_step = self.optimizer.apply_gradients(capped_gvs)
+            self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
+            # gvs = self.optimizer.compute_gradients(self.loss)
+            # capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
+            # self.train_step = self.optimizer.apply_gradients(capped_gvs)
             self.train_step = self.optimizer.minimize(self.loss)
             
         with tf.variable_scope("score"):
-            self.positive_probs = tf.sigmoid(self.positive_logits)
-            self.probs = tf.sigmoid(self.logits)
-            self.predictions = tf.to_int32(self.probs > 0.5)
             correct_predictions = tf.equal(self.predictions, tf.to_int32(self.labels))
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")

@@ -42,7 +42,7 @@ args.add_argument("--vocab_list", type=str, default="/media/scatter/scatterdisk/
 
 # Data specification
 args.add_argument("--batch_size", type=int, default=512)
-args.add_argument("--num_epochs", type=int, default=5)
+args.add_argument("--num_epochs", type=int, default=7)
 args.add_argument("--evaluate_every", type=int, default=20000)
 args.add_argument("--save_every", type=int, default=20000)
 args.add_argument("--max_to_keep", type=int, default=5)
@@ -58,6 +58,7 @@ args.add_argument("--learning_rate", type=float, default=1e-3)
 # Model : DualEncoderLSTM
 args.add_argument("--lstm_dim", type=int, default=512)
 args.add_argument("--lstm_dropout_keep_prob", type=float, default=0.9)
+args.add_argument("--dense_dropout_keep_prob", type=float, default=0.9)
 
 # Model : CNNMatch
 args.add_argument("--filter_sizes", type=str, default="2,3")
@@ -96,7 +97,8 @@ def main():
                config.train_dir, 
                config.val_dir, 
                config.min_length, 
-               config.max_length, 
+               config.max_length,
+               config.num_negative_samples,
                config.batch_size, 
                config.shuffle, 
                config.num_epochs, 

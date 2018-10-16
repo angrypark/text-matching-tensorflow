@@ -146,11 +146,10 @@ class MatchingModelTrainer(BaseTrainer):
         return model, sess
 
     def train_step(self, model, sess):
-        
         feed_dict = {model.lstm_dropout_keep_prob: self.config.lstm_dropout_keep_prob,
                      model.num_negative_samples: self.config.num_negative_samples,
                      model.embed_dropout_keep_prob: self.config.embed_dropout_keep_prob,
-                     model.add_echo: (self.config.add_echo) & (self.global_step > 100000)
+                     model.dense_dropout_keep_prob: self.config.dense_dropout_keep_prob
                      }
         
         if self.use_weak_supervision:
@@ -268,10 +267,28 @@ class MatchingModelTrainer(BaseTrainer):
 
         for step in loop:
             feed_dict = {model.lstm_dropout_keep_prob: 1,
-                         model.num_negative_samples: 4,
-                         model.embed_dropout_keep_prob: 1,
-                         model.add_echo: False
-                         }
+                     model.num_negative_samples: self.config.num_negative_samples,
+                     model.embed_dropout_keep_prob: 1,
+                     model.dense_dropout_keep_prob: 1
+                     }
+            if self.use_weak_supervision:
+                input_queries, input_replies, query_lengths, reply_lengths, weak_distances = \
+                self.infer_sess.run([self.infer_model.input_queries, 
+                                     self.infer_model.input_replies, 
+                                     self.infer_model.queries_lengths, 
+                                     self.infer_model.replies_lengths, self.infer_model.distances], 
+                                    feed_dict={self.infer_model.dropout_keep_prob: 1, 
+                                               self.infer_model.add_echo: False})
+                feed_dict.update({model.input_queries: input_queries, 
+                                  model.input_replies: input_replies, 
+                                  model.query_lengths: query_lengths, 
+                                  model.reply_lengths: reply_lengths, 
+                                  model.weak_distances: weak_distances})
+
+                if (weak_distances.shape[0] != input_queries.shape[0]) and (weak_distances.shape[1] != input_queries.shape[0]):
+                    self.logger.info("Wrong Weak Distance!!!!")
+                    return None, None
+                
             loss, score = sess.run([model.loss, model.accuracy], feed_dict=feed_dict)
             losses.append(loss)
             scores.append(score)
