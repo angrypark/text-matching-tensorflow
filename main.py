@@ -66,6 +66,8 @@ args.add_argument("--num_filters", type=int, default=64)
 args.add_argument("--num_hidden", type=int, default=128)
 args.add_argument("--hidden_dropout_keep_prob", type=float, default=0.9)
 
+args.add_argument("--hinge_loss", type=float, default=0.5)
+
 # Weak Supervision
 args.add_argument("--weak_supervision", type=bool, default=False)
 

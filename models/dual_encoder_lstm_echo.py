@@ -46,19 +46,21 @@ class DualEncoderLSTM(Model):
                                                              name="reply_lengths")
 
             # get hyperparams
-            self.embed_dropout_keep_prob = tf.placeholder(tf.float64, name="embed_dropout_keep_prob")
+            self.embed_dropout_keep_prob = tf.placeholder(tf.float32, name="embed_dropout_keep_prob")
             self.lstm_dropout_keep_prob = tf.placeholder(tf.float32, name="lstm_dropout_keep_prob")
-            self.dense_dropout_keep_prob = tf.placeholder(tf.float32, name="dense_dropout_keep_prob")
             self.num_negative_samples = tf.placeholder(tf.int32, name="num_negative_samples")
+            self.add_echo = tf.placeholder(tf.bool, name="add_echo")
 
         with tf.variable_scope("properties"):
             # length properties
             cur_batch_length = tf.shape(self.input_queries)[0]
+            query_max_length = tf.shape(self.input_queries)[1]
+            reply_max_length = tf.shape(self.input_replies)[1]
 
             # learning rate and optimizer
             learning_rate =  tf.train.exponential_decay(self.config.learning_rate,
                                                         self.global_step_tensor,
-                                                        decay_steps=20000, decay_rate=0.96)
+                                                        decay_steps=100000, decay_rate=0.9)
             self.optimizer = tf.train.AdamOptimizer(learning_rate)
 
         # embedding layer
@@ -69,9 +71,6 @@ class DualEncoderLSTM(Model):
                                                     self.config.embed_dim),
                                      trainable=True,
                                      name="embeddings")
-            embeddings = tf.nn.dropout(embeddings,
-                                       keep_prob=self.embed_dropout_keep_prob,
-                                       noise_shape=[tf.shape(embeddings)[0], 1])
             queries_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_queries, name="queries_embedded"))
             replies_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_replies, name="replies_embedded"))
 
@@ -106,19 +105,26 @@ class DualEncoderLSTM(Model):
                 dtype=tf.float32,
             )
 
+            _, echo_encoded = tf.nn.dynamic_rnn(
+                cell=reply_lstm_cell,
+                inputs=queries_embedded,
+                sequence_length=tf.cast(tf.squeeze(self.query_lengths), tf.float32),
+                dtype=tf.float32)
+
             self.queries_encoded = tf.cast(queries_encoded.h, tf.float64)
             self.replies_encoded = tf.cast(replies_encoded.h, tf.float64)
+            self.echo_encoded = tf.cast(echo_encoded.h, tf.float64)
 
         # build dense layer
         with tf.variable_scope("dense_layer"):
             M = tf.get_variable("M",
                                 shape=[self.config.lstm_dim, self.config.lstm_dim],
                                 initializer=tf.initializers.truncated_normal())
-            M = tf.nn.dropout(M, self.dense_dropout_keep_prob)
-            self.queries_transformed = tf.matmul(self.queries_encoded, tf.cast(M, tf.float64))
+            self.queries_encoded = tf.matmul(self.queries_encoded, tf.cast(M, tf.float64))
 
         with tf.variable_scope("sampling"):
-            self.distances = tf.matmul(self.queries_transformed, self.replies_encoded, transpose_b=True)
+            self.distances = tf.matmul(self.queries_encoded, self.replies_encoded, transpose_b=True)
+            self.echo_distances = tf.matmul(self.queries_encoded, self.echo_encoded, transpose_b=True)
             positive_mask = tf.reshape(tf.eye(cur_batch_length), [-1])
             negative_mask = tf.reshape(make_negative_mask(self.distances,
                                                           method=self.config.negative_sampling,
@@ -126,21 +132,35 @@ class DualEncoderLSTM(Model):
 
         with tf.variable_scope("prediction"):
             distances_flattened = tf.reshape(self.distances, [-1])
+            echo_distances_flattened = tf.reshape(self.echo_distances, [-1])
             self.positive_logits = tf.gather(distances_flattened, tf.where(positive_mask), 1)
             self.negative_logits = tf.gather(distances_flattened, tf.where(negative_mask), 1)
+            self.echo_logits = tf.gather(echo_distances_flattened, tf.where(positive_mask), 1)
 
-            self.logits = tf.concat([self.positive_logits,
-                                     self.negative_logits], axis=0)
-            self.labels = tf.concat([tf.ones_like(self.positive_logits),
-                                     tf.zeros_like(self.negative_logits)], axis=0)
+            self.logits = tf.cond(self.add_echo, 
+                                  lambda: tf.concat([self.positive_logits,
+                                                     self.negative_logits,
+                                                     self.echo_logits], axis=0),
+                                  lambda: tf.concat([self.positive_logits,
+                                                     self.negative_logits], axis=0))
+            self.labels = tf.cond(self.add_echo,
+                                  lambda: tf.concat([tf.ones_like(self.positive_logits),
+                                                     tf.zeros_like(self.negative_logits),
+                                                     tf.zeros_like(self.echo_logits)], axis=0),
+                                  lambda: tf.concat([tf.ones_like(self.positive_logits),
+                                                     tf.zeros_like(self.negative_logits)], axis=0))
             
             self.positive_probs = tf.sigmoid(self.positive_logits)
+            self.echo_probs = tf.sigmoid(self.echo_logits)
 
             self.probs = tf.sigmoid(self.logits)
             self.predictions = tf.cast(self.probs > 0.5, dtype=tf.int32)
             
         with tf.variable_scope("loss"):
             self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
+            # gvs = self.optimizer.compute_gradients(self.loss)
+            # capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
+            # self.train_step = self.optimizer.apply_gradients(capped_gvs)
             self.train_step = self.optimizer.minimize(self.loss)
             
         with tf.variable_scope("score"):

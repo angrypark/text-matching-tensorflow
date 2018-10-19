@@ -149,7 +149,7 @@ class MatchingModelTrainer(BaseTrainer):
         feed_dict = {model.lstm_dropout_keep_prob: self.config.lstm_dropout_keep_prob,
                      model.num_negative_samples: self.config.num_negative_samples,
                      model.embed_dropout_keep_prob: self.config.embed_dropout_keep_prob,
-                     model.dense_dropout_keep_prob: self.config.dense_dropout_keep_prob
+                     model.dense_dropout_keep_prob: self.config.dense_dropout_keep_prob,
                      }
         
         if self.use_weak_supervision:
@@ -212,8 +212,6 @@ class MatchingModelTrainer(BaseTrainer):
                     continue
 
                 loss, score = self.train_step(train_model, train_sess)
-                if loss==None:
-                    continue
 
                 # increment global step
                 self.global_step += 1
@@ -267,10 +265,10 @@ class MatchingModelTrainer(BaseTrainer):
 
         for step in loop:
             feed_dict = {model.lstm_dropout_keep_prob: 1,
-                     model.num_negative_samples: self.config.num_negative_samples,
-                     model.embed_dropout_keep_prob: 1,
-                     model.dense_dropout_keep_prob: 1
-                     }
+                         model.num_negative_samples: 4,
+                         model.embed_dropout_keep_prob: 1,
+                         model.dense_dropout_keep_prob: 1,
+                         }
             if self.use_weak_supervision:
                 input_queries, input_replies, query_lengths, reply_lengths, weak_distances = \
                 self.infer_sess.run([self.infer_model.input_queries, 

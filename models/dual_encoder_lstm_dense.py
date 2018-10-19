@@ -54,13 +54,11 @@ class DualEncoderLSTMDense(Model):
         with tf.variable_scope("properties"):
             # length properties
             cur_batch_length = tf.shape(self.input_queries)[0]
-            query_max_length = tf.shape(self.input_queries)[1]
-            reply_max_length = tf.shape(self.input_replies)[1]
 
             # learning rate and optimizer
             learning_rate =  tf.train.exponential_decay(self.config.learning_rate,
                                                         self.global_step_tensor,
-                                                        decay_steps=5000, decay_rate=0.96)
+                                                        decay_steps=100000, decay_rate=0.96)
             self.optimizer = tf.train.AdamOptimizer(learning_rate)
 
         # embedding layer
@@ -76,6 +74,8 @@ class DualEncoderLSTMDense(Model):
                                        noise_shape=[90000, 1])
             queries_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_queries, name="queries_embedded"))
             replies_embedded = tf.to_float(tf.nn.embedding_lookup(embeddings, self.input_replies, name="replies_embedded"))
+            self.queries_embedded = queries_embedded
+            self.replies_embedded = replies_embedded
 
         # build LSTM layer
         with tf.variable_scope("lstm_layer") as vs:
@@ -108,48 +108,40 @@ class DualEncoderLSTMDense(Model):
             self.queries_encoded = tf.cast(queries_encoded.h, tf.float64)
             self.replies_encoded = tf.cast(replies_encoded.h, tf.float64)
 
-        # build dense layer
-        with tf.variable_scope("dense_layer"):
-            M = tf.get_variable("M",
-                                shape=[self.config.lstm_dim, self.config.lstm_dim],
-                                initializer=tf.initializers.truncated_normal())
-            self.queries_transformed = tf.matmul(self.queries_encoded, tf.cast(M, tf.float64))
-
         with tf.variable_scope("sampling"):
-            positive_indices = tf.range(cur_batch_length)
+            negative_mask = make_negative_mask(tf.zeros([cur_batch_length, cur_batch_length]),
+                                                         method=self.config.negative_sampling,
+                                                         num_negative_samples=self.num_negative_samples)
+            negative_queries_indices, negative_replies_indices = tf.split(tf.where(tf.not_equal(negative_mask, 0)), [1, 1], 1)
             
-            negative_mask = tf.reshape(make_negative_mask(tf.zeros([cur_batch_length, cur_batch_length]),
-                                                          method=self.config.negative_sampling,
-                                                          num_negative_samples=self.num_negative_samples), [-1])
-            negative_indices = tf.squeeze(tf.where(negative_mask))
-            positive_indices_tiled = tf.slice(tf.tile(positive_indices, [self.num_negative_samples]), 
-                                              [0], 
-                                              tf.shape(negative_indices))
-            
-            self.positive_inputs = tf.concat([self.queries_transformed, self.replies_encoded], 1)
-            self.negative_inputs = tf.concat([tf.nn.embedding_lookup(self.queries_transformed, positive_indices_tiled), 
-                                              tf.nn.embedding_lookup(self.replies_encoded, negative_indices)], 1)
+            self.negative_queries_indices = tf.squeeze(negative_queries_indices)
+            self.negative_replies_indices = tf.squeeze(negative_replies_indices)
+    
+            self.positive_inputs = tf.concat([self.queries_encoded, self.replies_encoded], 1)
+            self.negative_inputs = tf.reshape(tf.concat([tf.nn.embedding_lookup(self.queries_encoded, self.negative_queries_indices),
+                                              tf.nn.embedding_lookup(self.replies_encoded, self.negative_replies_indices)], 1),
+                                              [tf.shape(negative_queries_indices)[0], self.config.lstm_dim*2])
 
         with tf.variable_scope("prediction"):
-            positive_outputs = tf.layers.dense(self.positive_inputs, 10, tf.nn.relu, name="hidden_layer")
-            negative_outputs = tf.layers.dense(self.negative_inputs, 10, tf.nn.relu, name="hidden_layer", reuse=True)
-            
-            self.positive_logits = tf.layers.dense(positive_outputs, 1, tf.nn.relu, name="output_layer")
-            self.negative_logits = tf.layers.dense(negative_outputs, 1, tf.nn.relu, name="output_layer", reuse=True)
-            
-            self.logits = tf.concat([self.positive_logits, self.negative_logits], 0)
-            self.labels = tf.concat([tf.ones_like(self.positive_logits), tf.zeros_like(self.negative_logits)], 0)
+            self.hidden_outputs = tf.layers.dense(tf.concat([self.positive_inputs, self.negative_inputs], 0), 
+                                                  256,
+                                                  tf.nn.relu,
+                                                  name="hidden_layer")
+            self.logits = tf.layers.dense(self.hidden_outputs,
+                                          2,
+                                          tf.nn.relu, name="output_layer")
+            labels = tf.concat([tf.ones([tf.shape(self.positive_inputs)[0]], tf.float64),
+                                tf.zeros([tf.shape(self.negative_inputs)[0]], tf.float64)], 0)
+
+            self.labels = tf.one_hot(tf.to_int32(labels), 2)
             
             self.probs = tf.sigmoid(self.logits)
-            self.predictions = tf.to_int32(self.probs > 0.5, dtype=tf.int32)
+            self.predictions = tf.argmax(self.probs, 1)
             
         with tf.variable_scope("loss"):
-            self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
-            # gvs = self.optimizer.compute_gradients(self.loss)
-            # capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
-            # self.train_step = self.optimizer.apply_gradients(capped_gvs)
-            self.train_step = self.optimizer.minimize(self.loss)
+            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.labels, logits=self.logits))
+            self.train_step = self.optimizer.minimize(self.loss, global_step=self.global_step_tensor)
             
         with tf.variable_scope("score"):
-            correct_predictions = tf.equal(self.predictions, tf.to_int32(self.labels))
+            correct_predictions = tf.equal(self.predictions, tf.argmax(self.labels, 1))
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")

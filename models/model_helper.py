@@ -70,3 +70,32 @@ def make_negative_mask(distances, num_negative_samples, method="random"):
     #         drop_positive = tf.to_int32(tf.subtract(tf.ones([batch_size, batch_size]), tf.eye(batch_size)))
     #         mask = tf.multiply(mask, drop_positive)
     return mask
+
+def get_optimizer(global_step, 
+                  optimize_method="adam", 
+                  learning_rate=1e-3, 
+                  warm_up_steps=0, 
+                  decay_method=None, 
+                  decay_steps=0, 
+                  decay_rate=0, 
+                  end_learning_rate=0):
+    # define learning rate with decay method
+    if not decay_method:
+        pass
+    elif decay_method=="exponential":
+        learning_rate = tf.train.exponential_decay(learning_rate, 
+                                                   global_step, 
+                                                   decay_steps=decay_steps,
+                                                   decay_rate=decay_rate)
+    elif decay_method=="step":
+        learning_rate = tf.train.polynomial_decay(learning_rate,
+                                                  global_step=global_step,
+                                                  decay_steps=decay_steps,
+                                                  end_learning_rate=end_learning_rate)
+    else:
+        raise NotImplementedError()
+
+    # define optimizer
+    if optimize_method == "adam":
+        optimizer = tf.train.AdamOptimizer(learning_rate)
+        
