@@ -201,7 +201,9 @@ class SMN(Model):
             self.logits = tf.concat([self.positive_logits, self.negative_logits], 0)
             self.positive_probs = tf.nn.softmax(self.positive_logits)
             self.probs = tf.nn.softmax(self.logits)
-            self.labels = tf.concat([tf.ones_like(self.positive_logits), tf.zeros_like(self.negative_logits)], 0)
+            labels = tf.concat([tf.ones([tf.shape(self.positive_logits)[0]], tf.float64),
+                                tf.zeros([tf.shape(self.negative_logits)[0]], tf.float64)], 0)
+            self.labels = tf.one_hot(tf.to_int32(labels), 2)
             losses = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.labels, logits=self.logits)
             self.loss = tf.reduce_mean(losses)
             self.train_step = self.optimizer.minimize(self.loss)
