@@ -11,7 +11,7 @@ def get_embeddings(vocab_list_dir,
                    embed_dim):
     embedding = np.random.uniform(-1/16, 1/16, [vocab_size, embed_dim])
     if os.path.isfile(pretrained_embed_dir) & os.path.isfile(vocab_list_dir):
-        with open(vocab_list_dir, "r") as f:
+        with open(vocab_list_dir, "r", encoding="utf-8") as f:
             vocab_list = [word.strip() for word in f if len(word)>0]
         processor = JamoProcessor()
         ft = FastText.load(pretrained_embed_dir)

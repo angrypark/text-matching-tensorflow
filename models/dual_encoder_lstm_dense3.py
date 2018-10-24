@@ -6,9 +6,9 @@ from models.base import Model
 from models.model_helper import get_embeddings, make_negative_mask
 
 
-class DualEncoderLSTMDense(Model):
+class DualEncoderLSTMDense3(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(DualEncoderLSTMDense, self).__init__(dataset, config)
+        super(DualEncoderLSTMDense3, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -114,19 +114,27 @@ class DualEncoderLSTMDense(Model):
                                                          num_negative_samples=self.num_negative_samples)
             negative_queries_indices, negative_replies_indices = tf.split(tf.where(tf.not_equal(negative_mask, 0)), [1, 1], 1)
             
-            # self.distances = tf.matmul(self.queries_encoded, self.replies_encoded, transpose_b=True)
-            # self.distances_flattened = tf.reshape(self.distances, [-1])
+            self.distances = tf.matmul(self.queries_encoded, self.replies_encoded, transpose_b=True)
+            self.distances_flattened = tf.reshape(self.distances, [-1])
             
-            # self.positive_distances = tf.gather(self.distances_flattened, tf.where(tf.reshape(tf.eye(cur_batch_length), -1)))
-            # self.negative_distances = tf.gather(self.distances_flattened, tf.where(tf.reshape(negative_mask, -1)))
+            self.positive_distances = tf.gather(self.distances_flattened, tf.where(tf.reshape(tf.eye(cur_batch_length), [-1])))
+            self.negative_distances = tf.gather(self.distances_flattened, tf.where(tf.reshape(negative_mask, [-1])))
             
             self.negative_queries_indices = tf.squeeze(negative_queries_indices)
             self.negative_replies_indices = tf.squeeze(negative_replies_indices)
-    
-            self.positive_inputs = tf.concat([self.queries_encoded, self.replies_encoded], 1)
-            self.negative_inputs = tf.reshape(tf.concat([tf.nn.embedding_lookup(self.queries_encoded, self.negative_queries_indices),
-                                              tf.nn.embedding_lookup(self.replies_encoded, self.negative_replies_indices)], 1),
-                                              [tf.shape(negative_queries_indices)[0], self.config.lstm_dim*2])
+            
+            self.negative_queries_encoded = tf.nn.embedding_lookup(self.queries_encoded, self.negative_queries_indices)
+            self.negative_replies_encoded = tf.nn.embedding_lookup(self.replies_encoded, self.negative_replies_indices)
+            
+            self.positive_inputs = tf.concat([self.queries_encoded - self.replies_encoded, 
+                                              self.queries_encoded, 
+                                              self.positive_distances, 
+                                              self.replies_encoded], 1)
+            self.negative_inputs = tf.reshape(tf.concat([self.negative_queries_encoded - self.negative_replies_encoded,
+                                                         self.negative_queries_encoded,
+                                                         self.negative_distances,
+                                                         self.negative_replies_encoded], 1),
+                                              [tf.shape(negative_queries_indices)[0], self.config.lstm_dim * 3 + 1])
 
         with tf.variable_scope("prediction"):
             self.hidden_outputs = tf.layers.dense(tf.concat([self.positive_inputs, self.negative_inputs], 0), 
@@ -143,7 +151,6 @@ class DualEncoderLSTMDense(Model):
             
             self.probs = tf.sigmoid(self.logits)
             self.predictions = tf.argmax(self.probs, 1)
-            self.positive_probs = tf.slice(self.probs, [0, 0], [cur_batch_length, -1])
             
         with tf.variable_scope("loss"):
             self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.labels, logits=self.logits))

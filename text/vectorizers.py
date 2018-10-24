@@ -49,7 +49,7 @@ class Vectorizer:
         return word2idx, idx2word
     
     def _load_vocab(self):
-        with open(self.vocab_list, "r") as f:
+        with open(self.vocab_list, "r", encoding="utf-8") as f:
             idx2word = [line.strip() for line in f if line.strip()]
         word2idx = {word:idx for idx, word in enumerate(idx2word)}
         return word2idx, idx2word
