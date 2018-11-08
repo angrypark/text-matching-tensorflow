@@ -170,10 +170,10 @@ class MatchingModelTrainer(BaseTrainer):
                 self.logger.info("Wrong Weak Distance!!!!")
                 return None, None
         
-        _, loss, score = sess.run([model.train_step, model.loss, model.accuracy],
+        _, loss, score, lr = sess.run([model.train_step, model.loss, model.accuracy, model.learning_rate],
                                   feed_dict=feed_dict)
 
-        return loss, score
+        return loss, score, lr
 
     def train_epoch(self, model, sess):
         """Not used because data size is too big"""
@@ -211,7 +211,7 @@ class MatchingModelTrainer(BaseTrainer):
                 if ((epoch - 1) * self.num_steps_per_epoch) + step < self.global_step:
                     continue
 
-                loss, score = self.train_step(train_model, train_sess)
+                loss, score, lr = self.train_step(train_model, train_sess)
 
                 # increment global step
                 self.global_step += 1
@@ -226,7 +226,8 @@ class MatchingModelTrainer(BaseTrainer):
                     self.summary_writer.summarize(self.global_step,
                                                   summarizer="train",
                                                   summaries_dict={"loss": np.array(loss),
-                                                                  "score": np.array(score)})
+                                                                  "score": np.array(score), 
+                                                                  "learning_rate": np.array(lr)})
                 # save model
                 if self.global_step % self.config.save_every == 0:
                     train_model.save(train_sess, os.path.join(self.checkpoint_dir, "model.ckpt"))

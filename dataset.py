@@ -1,6 +1,22 @@
 import numpy as np
+from collections import defaultdict
 import tensorflow as tf
 import os
+
+
+class DummyDataset:
+    """
+    Just for inference. Imports nothing, reads nothing
+    """
+    
+    def __init__(self):
+        pass
+            
+    def get_data_iterator(self, index_table, mode=tf.contrib.learn.ModeKeys.TRAIN):
+        return self
+    
+    def get_next(self):
+        return defaultdict(list)
 
 class Dataset:
     def __init__(self, preprocessor, train_dir, val_dir, min_length, max_length, num_negative_samples, batch_size, shuffle, num_epochs, debug=False):

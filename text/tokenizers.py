@@ -94,6 +94,7 @@ class SentencePieceTokenizer(Tokenizer):
     
     def tokenize(self, sentence):
         tokens = self.tokenizer.EncodeAsPieces(sentence)
-        tokens = [token.decode("utf-8").replace("▁","") for token in tokens]
+        # tokens = [token.decode("utf-8").replace("▁","") for token in tokens]
+        tokens = [token.replace("▁","") for token in tokens]
         tokens = [token for token in tokens if token]
         return tokens
