@@ -82,19 +82,20 @@ def main():
     if config.config:
         config = load_config(config.config)
 
+    # Print config
     config_str = " | ".join(["{}={}".format(attr.upper(), value) for attr, value in vars(config).items()])
     print(config_str)
     config = create_dirs(config)
     
-    # create tensorflow session
+    # Create tensorflow session
     device_config = tf.ConfigProto()
     device_config.gpu_options.allow_growth = True
     sess = tf.Session(config=device_config)
 
-    # build preprocessor
+    # Build preprocessor
     preprocessor = Preprocessor(config)
 
-    # load data, preprocess and generate data
+    # Load data, preprocess and generate data
     data = Dataset(preprocessor, 
                config.train_dir, 
                config.val_dir, 
@@ -106,13 +107,13 @@ def main():
                config.num_epochs, 
                debug=False)
 
-    # create tensorboard summary writer
+    # Create tensorboard summary writer
     summary_writer = SummaryWriter(sess, config)
 
-    # create trainer and pass all the previous components to it
+    # Create trainer and pass all the previous components to it
     trainer = MatchingModelTrainer(sess, preprocessor, data, config, summary_writer)
 
-    # here you train your model
+    # Here you train your model
     trainer.train()
 
 
