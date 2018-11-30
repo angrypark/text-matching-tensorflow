@@ -28,7 +28,7 @@ args.add_argument("--config", type=str, default="")
 # Data loading and saving parameters
 args.add_argument("--train_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/")
 args.add_argument("--val_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/sol.validation.txt")
-args.add_argument("--pretrained_embed_dir", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/fasttext.sent_piece_100K.256D")
+args.add_argument("--pretrained_embed_dir", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/sent_piece_100K/fasttext.sent_piece_100K.256D")
 args.add_argument("--checkpoint_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/runs/")
 
 # Model specification
@@ -52,7 +52,7 @@ args.add_argument("--shuffle", type=bool, default=True)
 args.add_argument("--embed_dim", type=int, default=256)
 args.add_argument("--embed_dropout_keep_prob", type=float, default=0.9)
 args.add_argument("--min_length", type=int, default=1)
-args.add_argument("--max_length", type=int, default=20)
+args.add_argument("--max_length", type=int, default=30)
 args.add_argument("--learning_rate", type=float, default=1e-3)
 
 # Model : DualEncoderLSTM

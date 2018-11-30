@@ -4,23 +4,23 @@ import tensorflow as tf
 from tensor2tensor.models.lstm import lstm_bid_encoder
 
 from models.base import Model
-from models.model_helper import get_embeddings, make_negative_mask, lstm_bid_encoder
+from models.model_helper import get_embeddings, make_negative_mask, gelu
 
 
 """
-Best Model 1.
+Best Model 2.
 :author: @angrypark
-:architecture: Dual Encoder Bi-directional GRU + Dense layer
-:rnn: 512 dim * 2(bi-directional) * 2(dual encoder)
-:dense_input: 2048(rnn last state) + 1(forward matmul) + 1(backward matmul) = 2050 dim
+:architecture: Dual Encoder Uni-directional LSTM + Dense layer
+:rnn: 512 dim (uni-directional) * 2(dual encoder)
+:dense_input: 1024(rnn last state) + 512(q-r) + 512(q*r) + 1(q·r) = 2049
 :dense_output: 1024 dim
-:dense_activation_type: relu
+:dense_activation_type: gelu
 """
 
 
-class BestModel1(Model):
+class BestModel2(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(BestModel1, self).__init__(dataset, config)
+        super(BestModel2, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -112,61 +112,45 @@ class BestModel1(Model):
 
         # LSTM layer
         with tf.variable_scope("lstm_layer"):
-            # Query GRU forward cell
-            query_gru_cell_fw = tf.nn.rnn_cell.GRUCell(
-                self.config.lstm_dim / 2,
-                kernel_initializer=tf.initializers.orthogonal(),
-                name="query_gru_cell_fw")
-            query_gru_cell_fw = tf.contrib.rnn.DropoutWrapper(
-                query_gru_cell_fw, input_keep_prob=self.lstm_dropout_keep_prob)
+            # Query LSTM cell
+            query_lstm_cell = tf.nn.rnn_cell.LSTMCell(
+                self.config.lstm_dim,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True,
+                name="query_lstm_cell")
+            query_lstm_cell = tf.contrib.rnn.DropoutWrapper(
+                query_lstm_cell, input_keep_prob=self.lstm_dropout_keep_prob)
 
-            # Query GRU backward cell
-            query_gru_cell_bw = tf.nn.rnn_cell.GRUCell(
-                self.config.lstm_dim / 2,
-                kernel_initializer=tf.initializers.orthogonal(),
-                name="query_gru_cell_bw")
-            query_gru_cell_bw = tf.contrib.rnn.DropoutWrapper(
-                query_gru_cell_bw, input_keep_prob=self.lstm_dropout_keep_prob)
+            # Reply LSTM cell
+            reply_lstm_cell = tf.nn.rnn_cell.LSTMCell(
+                self.config.lstm_dim,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True,
+                name="reply_lstm_cell")
+            reply_lstm_cell = tf.contrib.rnn.DropoutWrapper(
+                reply_lstm_cell, input_keep_prob=self.lstm_dropout_keep_prob)
 
-            # Reply GRU forward cell
-            reply_gru_cell_fw = tf.nn.rnn_cell.GRUCell(
-                self.config.lstm_dim / 2,
-                kernel_initializer=tf.initializers.orthogonal(),
-                name="reply_gru_cell_fw")
-            reply_gru_cell_fw = tf.contrib.rnn.DropoutWrapper(
-                reply_gru_cell_fw, input_keep_prob=self.lstm_dropout_keep_prob)
-
-            # Reply GRU backward cell
-            reply_gru_cell_bw = tf.nn.rnn_cell.GRUCell(
-                self.config.lstm_dim / 2,
-                kernel_initializer=tf.initializers.orthogonal(),
-                name="reply_gru_cell_bw")
-            reply_gru_cell_bw = tf.contrib.rnn.DropoutWrapper(
-                reply_gru_cell_bw, input_keep_prob=self.lstm_dropout_keep_prob)
-
-            # Query Bi-directional GRU layer
-            _, (queries_encoded_fw, queries_encoded_bw) = tf.nn.bidirectional_dynamic_rnn(
-                query_gru_cell_fw,
-                query_gru_cell_bw,
+            # Query uni-directional LSTM layer
+            _, queries_encoded = tf.nn.dynamic_rnn(
+                query_lstm_cell,
                 self.queries_embedded,
                 self.query_lengths,
                 dtype=tf.float32
             )
-            self.queries_encoded = tf.cast(tf.concat([queries_encoded_fw, queries_encoded_bw],
-                                             1), tf.float64)
+            self.queries_encoded = tf.cast(queries_encoded.h, tf.float64)
 
-            # Reply Bi-directional GRU layer
-            _, (replies_encoded_fw, replies_encoded_bw) = tf.nn.bidirectional_dynamic_rnn(
-                reply_gru_cell_fw,
-                reply_gru_cell_bw,
+            # Reply uni-directional LSTM layer
+            _, replies_encoded = tf.nn.dynamic_rnn(
+                reply_lstm_cell,
                 self.replies_embedded,
                 self.reply_lengths,
                 dtype=tf.float32
             )
-            self.replies_encoded = tf.cast(tf.concat([replies_encoded_fw, replies_encoded_bw],
-                                             1), tf.float64)
+            self.replies_encoded = tf.cast(replies_encoded.h, tf.float64)
 
-        # Negative Sampling
+        # Negative sampling
         with tf.variable_scope("sampling"):
             positive_mask = tf.eye(cur_batch_length)
             negative_mask = make_negative_mask(
@@ -189,24 +173,33 @@ class BestModel1(Model):
             self.negative_queries_indices = tf.squeeze(negative_queries_indices)
             self.negative_replies_indices = tf.squeeze(negative_replies_indices)
 
+        # Dense inputs
+        with tf.variable_scope("dense_inputs"):
             self.positive_inputs = tf.concat([
                 self.queries_encoded, self.positive_distances,
+                tf.multiply(self.queries_encoded, self.replies_encoded),
+                self.queries_encoded - self.replies_encoded,
                 self.replies_encoded], 1)
 
-            self.negative_inputs = tf.reshape(
-                tf.concat([
-                    tf.nn.embedding_lookup(self.queries_encoded,
-                                           self.negative_queries_indices),
-                    self.negative_distances,
-                    tf.nn.embedding_lookup(self.replies_encoded,
-                                           self.negative_replies_indices)], 1),
-                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim * 2 + 1])
+            self.negative_queries_encoded = tf.reshape(tf.nn.embedding_lookup(
+                self.queries_encoded, self.negative_queries_indices),
+                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim])
+
+            self.negative_replies_encoded = tf.reshape(tf.nn.embedding_lookup(
+                self.replies_encoded, self.negative_replies_indices),
+                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim])
+
+            self.negative_inputs = tf.concat([
+                self.negative_queries_encoded, self.negative_distances,
+                tf.multiply(self.negative_queries_encoded, self.negative_replies_encoded),
+                self.negative_queries_encoded - self.negative_replies_encoded,
+                self.negative_replies_encoded], 1)
 
         with tf.variable_scope("prediction"):
             self.hidden_outputs = tf.layers.dense(
                 tf.concat([self.positive_inputs, self.negative_inputs], 0),
                 1024,
-                tf.nn.relu,
+                gelu,
                 name="dense_layer"
             )
             self.logits = tf.layers.dense(self.hidden_outputs,

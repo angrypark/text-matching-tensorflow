@@ -313,4 +313,3 @@ class MatchingModelTrainer(BaseTrainer):
             setattr(self.config, "best_epoch", str(self.cur_epoch))
             save_config(self.config.checkpoint_dir, self.config)
         return val_loss, val_score
-

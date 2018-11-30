@@ -111,8 +111,8 @@ class Dataset:
         splited = tf.string_split([line], delimiter="\t")
         query = tf.concat([["<SOS>"], tf.string_split([splited.values[1]], delimiter=" ").values, ["<EOS>"]], axis=0)
         reply = tf.concat([["<SOS>"], tf.string_split([splited.values[2]], delimiter=" ").values, ["<EOS>"]], axis=0)
-        query_length = tf.shape(query)[0]
-        reply_length = tf.shape(reply)[0]
+        query_length = tf.minimum(tf.shape(query)[0], max_length)
+        reply_length = tf.minimum(tf.shape(reply)[0], max_length)
         
         paddings = tf.constant([[0, 0],[0, max_length]])
         padded_query = tf.slice(tf.pad([query], paddings, constant_values="<PAD>"), [0, 0], [-1, max_length])
@@ -144,7 +144,7 @@ class Dataset:
                                  
     def get_fnames(self, dir):
         if os.path.isdir(dir):
-            return [os.path.join(dir, fname) for fname in sorted(os.listdir(dir))]
+            return [os.path.join(dir, fname) for fname in sorted(os.listdir(dir)) if "vocab" not in fname]
         elif os.path.isfile(dir):
             return [dir]
         else:

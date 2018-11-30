@@ -71,31 +71,24 @@ def make_negative_mask(distances, num_negative_samples, method="random"):
     #         mask = tf.multiply(mask, drop_positive)
     return mask
 
-def get_optimizer(global_step, 
-                  optimize_method="adam", 
-                  learning_rate=1e-3, 
-                  warm_up_steps=0, 
-                  decay_method=None, 
-                  decay_steps=0, 
-                  decay_rate=0, 
-                  end_learning_rate=0):
-    # define learning rate with decay method
-    if not decay_method:
-        pass
-    elif decay_method=="exponential":
-        learning_rate = tf.train.exponential_decay(learning_rate, 
-                                                   global_step, 
-                                                   decay_steps=decay_steps,
-                                                   decay_rate=decay_rate)
-    elif decay_method=="step":
-        learning_rate = tf.train.polynomial_decay(learning_rate,
-                                                  global_step=global_step,
-                                                  decay_steps=decay_steps,
-                                                  end_learning_rate=end_learning_rate)
-    else:
-        raise NotImplementedError()
+def dropout_lstm_cell(hidden_size, lstm_dropout_keep_prob, cell_type="lstm"):
+    if cell_type == "lstm":
+        return tf.contrib.rnn.DropoutWrapper(
+            tf.contrib.rnn.LSTMCell(hidden_size),
+            input_keep_prob=lstm_dropout_keep_prob)
+    elif cell_type == "gru":
+        return tf.contrib.rnn.DropoutWrapper(
+            tf.contrib.rnn.GRUCell(hidden_size),
+            input_keep_prob=lstm_dropout_keep_prob)
 
-    # define optimizer
-    if optimize_method == "adam":
-        optimizer = tf.train.AdamOptimizer(learning_rate)
-        
+def gelu(input_tensor):
+  """Gaussian Error Linear Unit.
+  This is a smoother version of the RELU.
+  Original paper: https://arxiv.org/abs/1606.08415
+  Args:
+    input_tensor: float Tensor to perform activation.
+  Returns:
+    `input_tensor` with the GELU activation applied.
+  """
+  cdf = 0.5 * (1.0 + tf.erf(input_tensor / tf.sqrt(tf.constant(2.0, tf.float64))))
+  return input_tensor * cdf
