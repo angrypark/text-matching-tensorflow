@@ -29,6 +29,9 @@ def pad_sequences(sequences, maxlen=None, dtype='int32', padding='post', truncat
 
 
 class Preprocessor:
+    """
+    Just for inference or train without tf.data.
+    """
     def __init__(self, config):
         self.min_length = config.min_length
         self.max_length = config.max_length
