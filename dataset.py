@@ -82,6 +82,27 @@ class Dataset:
                 "input_replies": reply,
                 "query_lengths": [tf.shape(query)[0]],
                 "reply_lengths": [tf.shape(reply)[0]]}
+    
+    def parse_single_line_old(self, line, index_table, max_length):
+        """get single line from train set, and returns after padding and indexing
+        :param line: corpus id \t query \t reply
+        """
+        splited = tf.string_split([line], delimiter="\t")
+        query = tf.concat([["<SOS>"], tf.string_split([splited.values[1]], delimiter=" ").values, ["<EOS>"]], axis=0)
+        reply = tf.concat([["<SOS>"], tf.string_split([splited.values[2]], delimiter=" ").values, ["<EOS>"]], axis=0)
+        query_length = tf.minimum(tf.shape(query)[0], max_length)
+        reply_length = tf.minimum(tf.shape(reply)[0], max_length)
+        
+        paddings = tf.constant([[0, 0],[0, max_length]])
+        padded_query = tf.slice(tf.pad([query], paddings, constant_values="<PAD>"), [0, 0], [-1, max_length])
+        padded_reply = tf.slice(tf.pad([reply], paddings, constant_values="<PAD>"), [0, 0], [-1, max_length])
+        
+        indexed_query = tf.squeeze(index_table.lookup(padded_query))
+        indexed_reply = tf.squeeze(index_table.lookup(padded_reply))
+        return {"input_queries": indexed_query,
+                "input_replies": indexed_reply,
+                "query_lengths": query_length,
+                "reply_lengths": reply_length}
 
     def get_fnames(self, dir):
         if os.path.isdir(dir):

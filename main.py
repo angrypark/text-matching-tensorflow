@@ -26,10 +26,10 @@ args.add_argument("--name", type=str, default="start")
 args.add_argument("--config", type=str, default="")
 
 # Data loading and saving parameters
-args.add_argument("--train_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/")
-args.add_argument("--val_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/sol.validation.txt")
-args.add_argument("--pretrained_embed_dir", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/sent_piece_100K/fasttext.sent_piece_100K.256D")
-args.add_argument("--checkpoint_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/runs/")
+args.add_argument("--train_dir", type=str, default="/storage/reply_matching_model/sol.tokenized.sent_piece_100K/")
+args.add_argument("--val_dir", type=str, default="/storage/reply_matching_model/sol.tokenized.sent_piece_100K/sol.validation.txt")
+args.add_argument("--pretrained_embed_dir", type=str, default="/storage/reply_matching_model/pretrained_embedding/fasttext.sent_piece_100K.256D")
+args.add_argument("--checkpoint_dir", type=str, default="/storage/reply_matching_model/runs/")
 
 # Model specification
 args.add_argument("--model", type=str, default="DualEncoderLSTM")
@@ -38,7 +38,7 @@ args.add_argument("--soynlp_scores", type=str, default="/media/scatter/scatterdi
 args.add_argument("--normalizer", type=str, default="DummyNormalizer")
 args.add_argument("--tokenizer", type=str, default="DummyTokenizer")
 args.add_argument("--vocab_size", type=int, default=90000)
-args.add_argument("--vocab_list", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/vocab_list.sent_piece_100K.txt")
+args.add_argument("--vocab_list", type=str, default="/storage/reply_matching_model/pretrained_embedding/vocab_list.sent_piece_100K.txt")
 
 # Data specification
 args.add_argument("--batch_size", type=int, default=512)

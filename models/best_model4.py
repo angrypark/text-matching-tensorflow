@@ -5,7 +5,9 @@ import tensorflow as tf
 from tensor2tensor.models.lstm import lstm_bid_encoder
 
 from models.base import Model
-from models.model_helper import get_embeddings, make_negative_mask, gelu
+from models.model_helper import (
+    get_embeddings, make_negative_mask, gelu, dropout_lstm_cell
+)
 
 
 """
@@ -138,9 +140,11 @@ class BestModel4(Model):
             query_fw_state_concat = tf.concat(query_fw_state, 1)
             query_bw_state_concat = tf.concat(query_bw_state, 1)
 
-            self.queries_encoded = tf.cast(
-                tf.concat([query_fw_state_concat, query_bw_state_concat],
-                          1), tf.float64)
+            # self.queries_encoded = tf.cast(
+            #     tf.concat([query_fw_state_concat, query_bw_state_concat],
+            #               1), tf.float64)
+            self.queries_encoded = tf.concat([query_fw_state_concat, query_bw_state_concat], 1)
+            
 
         # Reply 2 layer bi-directional gru layer
         with tf.variable_scope("reply_gru_layer"):
@@ -169,9 +173,10 @@ class BestModel4(Model):
             reply_fw_state_concat = tf.concat(reply_fw_state, 1)
             reply_bw_state_concat = tf.concat(reply_bw_state, 1)
 
-            self.replies_encoded = tf.cast(
-                tf.concat([reply_fw_state_concat, reply_bw_state_concat],
-                          1), tf.float64)
+            # self.replies_encoded = tf.cast(
+            #     tf.concat([reply_fw_state_concat, reply_bw_state_concat],
+            #               1), tf.float64)
+            self.replies_encoded = tf.concat([reply_fw_state_concat, reply_bw_state_concat], 1)
 
         # Negative sampling
         with tf.variable_scope("sampling"):
