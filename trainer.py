@@ -236,8 +236,4 @@ class MatchingModelTrainer(BaseTrainer):
             setattr(self.config, "best_step", str(self.global_step))
             setattr(self.config, "best_epoch", str(self.cur_epoch))
             save_config(self.config.checkpoint_dir, self.config)
-<<<<<<< HEAD
-=======
-
->>>>>>> 25ee312cf696f50b6a3df8d72519fcc4310aac7f
         return val_loss, val_score
