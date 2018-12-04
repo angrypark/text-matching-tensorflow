@@ -140,12 +140,10 @@ class BestModel4(Model):
             query_fw_state_concat = tf.concat(query_fw_state, 1)
             query_bw_state_concat = tf.concat(query_bw_state, 1)
 
-            # self.queries_encoded = tf.cast(
-            #     tf.concat([query_fw_state_concat, query_bw_state_concat],
-            #               1), tf.float64)
-            self.queries_encoded = tf.concat([query_fw_state_concat, query_bw_state_concat], 1)
+            self.queries_encoded = tf.cast(
+                tf.concat([query_fw_state_concat, query_bw_state_concat],
+                          1), tf.float64)
             
-
         # Reply 2 layer bi-directional gru layer
         with tf.variable_scope("reply_gru_layer"):
             reply_cell_fw = tf.contrib.rnn.MultiRNNCell(
@@ -173,10 +171,10 @@ class BestModel4(Model):
             reply_fw_state_concat = tf.concat(reply_fw_state, 1)
             reply_bw_state_concat = tf.concat(reply_bw_state, 1)
 
-            # self.replies_encoded = tf.cast(
-            #     tf.concat([reply_fw_state_concat, reply_bw_state_concat],
-            #               1), tf.float64)
-            self.replies_encoded = tf.concat([reply_fw_state_concat, reply_bw_state_concat], 1)
+            self.replies_encoded = tf.cast(
+                tf.concat([reply_fw_state_concat, reply_bw_state_concat],
+                          1), tf.float64)
+        
 
         # Negative sampling
         with tf.variable_scope("sampling"):
