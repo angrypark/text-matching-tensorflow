@@ -131,7 +131,7 @@ class BestModel5(Model):
                 self.query_lengths,
                 dtype=tf.float32
             )
-            self.queries_encoded = tf.cast(queries_encoded.h, tf.float64)
+            self.queries_encoded = tf.cast(queries_encoded, tf.float64)
 
             # Reply uni-directional GRU layer
             _, replies_encoded = tf.nn.dynamic_rnn(
@@ -140,7 +140,7 @@ class BestModel5(Model):
                 self.reply_lengths,
                 dtype=tf.float32
             )
-            self.replies_encoded = tf.cast(replies_encoded.h, tf.float64)
+            self.replies_encoded = tf.cast(replies_encoded, tf.float64)
 
         # Negative sampling
         with tf.variable_scope("sampling"):

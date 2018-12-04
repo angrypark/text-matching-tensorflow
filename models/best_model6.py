@@ -1,20 +1,20 @@
 import os
 import numpy as np
 import tensorflow as tf
-from tensor2tensor.models.lstm import lstm_bid_encoder
 
 from models.base import Model
 from models.model_helper import get_embeddings, make_negative_mask, gelu
 
 
 """
-Best Model 2.
-:author: @angrypark
-:architecture: Dual Encoder Uni-directional LSTM + Dense layer
-:rnn: 512 dim (uni-directional) * 2(dual encoder)
-:dense_input: 1024(rnn last state) + 512(q-r) + 512(q*r) + 1(q·r) = 2049
-:dense_output: 1024 dim
+Best Model 6.
+:author: @junseong
+:architecture: Dual Encoder 2 layer Bi-directional LSTM + Dense layer + l2 norm
+:rnn: 256(LSTM) * 2(bi-directional) * 2(two layer) = 1024
+:dense_input: 2048(rnn last state) + 1(q·r) = 2049
+:dense_output: 512 dim
 :dense_activation_type: gelu
+:lr_schedule: warmup 40000step + 1e-3 exponential_decay
 """
 
 
@@ -85,11 +85,29 @@ class BestModel2(Model):
             cur_batch_length = tf.shape(self.input_queries)[0]
 
             # Learning rate and optimizer
-            self.learning_rate = tf.train.exponential_decay(
-                self.config.learning_rate,
+            learning_rate = tf.constant(value=self.config.learning_rate,
+                                        shape=[], dtype=tf.float32)
+
+            # Implements linear decay of the learning rate.
+            learning_rate = tf.train.exponential_decay(
+                learning_rate,
                 self.global_step_tensor,
-                decay_steps=100000,
+                decay_steps=50000,
                 decay_rate=0.96)
+
+            global_steps_int = tf.cast(self.global_step_tensor, tf.int32)
+            warmup_steps_int = tf.constant(40000, dtype=tf.int32)
+
+            global_steps_float = tf.cast(global_steps_int, tf.float32)
+            warmup_steps_float = tf.cast(warmup_steps_int, tf.float32)
+
+            warmup_percent_done = global_steps_float / warmup_steps_float
+            warmup_learning_rate = self.config.learning_rate * warmup_percent_done
+
+            is_warmup = tf.cast(global_steps_int < warmup_steps_int, tf.float32)
+            self.learning_rate = (
+                    (1.0 - is_warmup) * learning_rate + is_warmup * warmup_learning_rate
+            )
 
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
