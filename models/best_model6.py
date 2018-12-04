@@ -9,18 +9,18 @@ from models.model_helper import get_embeddings, make_negative_mask, gelu
 """
 Best Model 6.
 :author: @junseong
-:architecture: Dual Encoder 2 layer Bi-directional LSTM + Dense layer + l2 norm
-:rnn: 256(LSTM) * 2(bi-directional) * 2(two layer) = 1024
+:architecture: Dual Encoder 2 layer Uni-directional LSTM + Dense layer
+:rnn: 512(LSTM) * 2(two layer) = 1024
 :dense_input: 2048(rnn last state) + 1(q·r) = 2049
-:dense_output: 512 dim
+:dense_output: 1024 dim
 :dense_activation_type: gelu
 :lr_schedule: warmup 40000step + 1e-3 exponential_decay
 """
 
 
-class BestModel2(Model):
+class BestModel6(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(BestModel2, self).__init__(dataset, config)
+        super(BestModel6, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -88,7 +88,7 @@ class BestModel2(Model):
             learning_rate = tf.constant(value=self.config.learning_rate,
                                         shape=[], dtype=tf.float32)
 
-            # Implements linear decay of the learning rate.
+            # Implements exponential decay of the learning rate.
             learning_rate = tf.train.exponential_decay(
                 learning_rate,
                 self.global_step_tensor,

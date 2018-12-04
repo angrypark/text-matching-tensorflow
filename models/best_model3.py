@@ -12,7 +12,7 @@ from models.model_helper import (
 """
 Best Model 3.
 :author: @shuuki4
-:architecture: Dual Encoder two layer Bi-directional GRU + Dense layer + l2 reg.
+:architecture: Dual Encoder two layer Bi-directional GRU + Dense layer + l2 norm
 :rnn: 256(GRU) * 2(bi-directional) * 2(two layer) = 1024
 :dense_input: 2048(rnn last state) + 1(matmul) 
 :dense_output: 1024 dim
@@ -112,7 +112,7 @@ class BestModel3(Model):
                                        self.input_replies,
                                        name="replies_embedded"))
 
-        # Query 2 layer bi-directional gru layer
+        # Query 2 layer bi-directional GRU layer
         with tf.variable_scope("query_gru_layer"):
             query_cell_fw = tf.contrib.rnn.MultiRNNCell(
                 [dropout_lstm_cell(self.config.lstm_dim / 2,
@@ -143,7 +143,7 @@ class BestModel3(Model):
                 tf.concat([query_fw_state_concat, query_bw_state_concat],
                           1), tf.float64)
 
-        # Reply 2 layer bi-directional gru layer
+        # Reply 2 layer bi-directional GRU layer
         with tf.variable_scope("reply_gru_layer"):
             reply_cell_fw = tf.contrib.rnn.MultiRNNCell(
                 [dropout_lstm_cell(self.config.lstm_dim / 2,
