@@ -71,7 +71,7 @@ def make_negative_mask(distances, num_negative_samples, method="random"):
     #         mask = tf.multiply(mask, drop_positive)
     return mask
 
-def dropout_lstm_cell(hidden_size, lstm_dropout_keep_prob, cell_type="lstm"):
+def dropout_lstm_cell2(hidden_size, lstm_dropout_keep_prob, cell_type="lstm"):
     if cell_type == "lstm":
         return tf.contrib.rnn.DropoutWrapper(
             tf.contrib.rnn.LSTMCell(hidden_size),
@@ -81,6 +81,18 @@ def dropout_lstm_cell(hidden_size, lstm_dropout_keep_prob, cell_type="lstm"):
             tf.contrib.rnn.GRUCell(hidden_size),
             input_keep_prob=lstm_dropout_keep_prob)
 
+def dropout_lstm_cell(hidden_size, lstm_dropout_keep_prob, cell_type="lstm"):
+    if cell_type == "lstm":
+        return tf.nn.rnn_cell.DropoutWrapper(
+            tf.nn.rnn_cell.LSTMCell(hidden_size),
+            input_keep_prob=lstm_dropout_keep_prob)
+    elif cell_type == "gru":
+        return tf.nn.rnn_cell.DropoutWrapper(
+            tf.nn.rnn_cell.GRUCell(hidden_size),
+            input_keep_prob=lstm_dropout_keep_prob)
+
+    
+    
 def gelu(input_tensor):
   """Gaussian Error Linear Unit.
   This is a smoother version of the RELU.

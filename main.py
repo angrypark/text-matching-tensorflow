@@ -50,15 +50,15 @@ args.add_argument("--shuffle", type=bool, default=True)
 
 # Embedding, learning rate specification
 args.add_argument("--embed_dim", type=int, default=256)
-args.add_argument("--embed_dropout_keep_prob", type=float, default=0.9)
+args.add_argument("--embed_dropout_keep_prob", type=float, default=1)
 args.add_argument("--min_length", type=int, default=1)
 args.add_argument("--max_length", type=int, default=30)
 args.add_argument("--learning_rate", type=float, default=1e-3)
 
 # Model : DualEncoderLSTM
 args.add_argument("--lstm_dim", type=int, default=512)
-args.add_argument("--lstm_dropout_keep_prob", type=float, default=0.9)
-args.add_argument("--dense_dropout_keep_prob", type=float, default=0.9)
+args.add_argument("--lstm_dropout_keep_prob", type=float, default=0.8)
+args.add_argument("--dense_dropout_keep_prob", type=float, default=1)
 
 # Model : CNNMatch
 args.add_argument("--filter_sizes", type=str, default="2,3")

@@ -54,4 +54,3 @@ class Preprocessor:
         indexed_sentence, length = self._preprocess(sentence)
         padded_sentence = pad_sequences([indexed_sentence], maxlen=self.max_length)[0]
         return padded_sentence, length
-

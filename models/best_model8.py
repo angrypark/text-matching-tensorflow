@@ -1,26 +1,28 @@
+# coding=utf-8
 import os
 import numpy as np
 import tensorflow as tf
 from tensor2tensor.models.lstm import lstm_bid_encoder
 
 from models.base import Model
-from models.model_helper import get_embeddings, make_negative_mask, gelu
-
+from models.model_helper import (
+    get_embeddings, make_negative_mask, gelu, dropout_lstm_cell
+)
 
 """
-Best Model 2.
-:author: @angrypark
-:architecture: Dual Encoder Uni-directional LSTM + Dense layer
-:rnn: 512 dim (uni-directional) * 2(dual encoder)
-:dense_input: 1024(rnn last state) + 512(q-r) + 512(q*r) + 1(q·r) = 2049
+Best Model 3.
+:author: @shuuki4
+:architecture: Dual Encoder two layer Bi-directional GRU + Dense layer + l2 norm
+:rnn: 256(GRU) * 2(bi-directional) * 2(two layer) = 1024
+:dense_input: 2048(rnn last state) + 1(matmul) 
 :dense_output: 1024 dim
-:dense_activation_type: gelu
+:dense_activation_type: relu
 """
 
 
-class BestModel2(Model):
+class BestModel8(Model):
     def __init__(self, dataset, config, mode=tf.contrib.learn.ModeKeys.TRAIN):
-        super(BestModel2, self).__init__(dataset, config)
+        super(BestModel8, self).__init__(dataset, config)
         if mode == "train":
             self.mode = tf.contrib.learn.ModeKeys.TRAIN
         elif (mode == "val") | (mode == tf.contrib.learn.ModeKeys.EVAL):
@@ -110,45 +112,67 @@ class BestModel2(Model):
                                        self.input_replies,
                                        name="replies_embedded"))
 
-        # LSTM layer
-        with tf.variable_scope("lstm_layer"):
-            # Query LSTM cell
-            query_lstm_cell = tf.nn.rnn_cell.LSTMCell(
-                self.config.lstm_dim,
-                forget_bias=2.0,
-                use_peepholes=True,
-                state_is_tuple=True,
-                name="query_lstm_cell")
-            query_lstm_cell = tf.contrib.rnn.DropoutWrapper(
-                query_lstm_cell, input_keep_prob=self.lstm_dropout_keep_prob)
+        # Query 2 layer bi-directional GRU layer
+        with tf.variable_scope("query_gru_layer"):
+            query_cell_fw = tf.contrib.rnn.MultiRNNCell(
+                [dropout_lstm_cell(self.config.lstm_dim / 2,
+                                   self.lstm_dropout_keep_prob,
+                                   cell_type="gru")
+                 for _ in range(2)]
+            )
 
-            # Reply LSTM cell
-            reply_lstm_cell = tf.nn.rnn_cell.LSTMCell(
-                self.config.lstm_dim,
-                forget_bias=2.0,
-                use_peepholes=True,
-                state_is_tuple=True,
-                name="reply_lstm_cell")
-            reply_lstm_cell = tf.contrib.rnn.DropoutWrapper(
-                reply_lstm_cell, input_keep_prob=self.lstm_dropout_keep_prob)
+            query_cell_bw = tf.contrib.rnn.MultiRNNCell(
+                [dropout_lstm_cell(self.config.lstm_dim / 2,
+                                   self.lstm_dropout_keep_prob,
+                                   cell_type="gru")
+                 for _ in range(2)]
+            )
 
-            # Query uni-directional LSTM layer
-            _, queries_encoded = tf.nn.dynamic_rnn(
-                query_lstm_cell,
+            _, (query_fw_state, query_bw_state) = tf.nn.bidirectional_dynamic_rnn(
+                query_cell_fw,
+                query_cell_bw,
                 self.queries_embedded,
                 self.query_lengths,
-                dtype=tf.float32
-            )
-            self.queries_encoded = tf.cast(queries_encoded.h, tf.float64)
+                dtype=tf.float32,
+                time_major=False)
 
-            # Reply uni-directional LSTM layer
-            _, replies_encoded = tf.nn.dynamic_rnn(
-                reply_lstm_cell,
+            query_fw_state_concat = tf.concat(query_fw_state, 1)
+            query_bw_state_concat = tf.concat(query_bw_state, 1)
+
+            self.queries_encoded = tf.cast(
+                tf.concat([query_fw_state_concat, query_bw_state_concat],
+                          1), tf.float64)
+
+        # Reply 2 layer bi-directional GRU layer
+        with tf.variable_scope("reply_gru_layer"):
+            reply_cell_fw = tf.contrib.rnn.MultiRNNCell(
+                [dropout_lstm_cell(self.config.lstm_dim / 2,
+                                   self.lstm_dropout_keep_prob,
+                                   cell_type="gru")
+                 for _ in range(2)]
+            )
+
+            reply_cell_bw = tf.contrib.rnn.MultiRNNCell(
+                [dropout_lstm_cell(self.config.lstm_dim / 2,
+                                   self.lstm_dropout_keep_prob,
+                                   cell_type="gru")
+                 for _ in range(2)]
+            )
+
+            _, (reply_fw_state, reply_bw_state) = tf.nn.bidirectional_dynamic_rnn(
+                reply_cell_fw,
+                reply_cell_bw,
                 self.replies_embedded,
                 self.reply_lengths,
-                dtype=tf.float32
-            )
-            self.replies_encoded = tf.cast(replies_encoded.h, tf.float64)
+                dtype=tf.float32,
+                time_major=False)
+
+            reply_fw_state_concat = tf.concat(reply_fw_state, 1)
+            reply_bw_state_concat = tf.concat(reply_bw_state, 1)
+
+            self.replies_encoded = tf.cast(
+                tf.concat([reply_fw_state_concat, reply_bw_state_concat],
+                          1), tf.float64)
 
         # Negative sampling
         with tf.variable_scope("sampling"):
@@ -161,7 +185,11 @@ class BestModel2(Model):
             negative_queries_indices, negative_replies_indices = tf.split(
                 tf.where(tf.not_equal(negative_mask, 0)), [1, 1], 1)
 
-            self.distances = tf.matmul(self.queries_encoded, self.replies_encoded, transpose_b=True)
+            negative_queries_indices = tf.to_int32(negative_queries_indices)
+            negative_replies_indices = tf.to_int32(negative_replies_indices)
+
+            self.distances = tf.matmul(self.queries_encoded, self.replies_encoded,
+                                       transpose_b=True)
             self.distances_flat = tf.reshape(self.distances, [-1])
 
             self.positive_distances = tf.gather(self.distances_flat, tf.where(
@@ -176,30 +204,28 @@ class BestModel2(Model):
         # Dense inputs
         with tf.variable_scope("dense_inputs"):
             self.positive_inputs = tf.concat([
-                self.queries_encoded, self.positive_distances,
-                tf.multiply(self.queries_encoded, self.replies_encoded),
-                self.queries_encoded - self.replies_encoded,
+                self.queries_encoded,
+                self.positive_distances,
                 self.replies_encoded], 1)
 
             self.negative_queries_encoded = tf.reshape(tf.nn.embedding_lookup(
                 self.queries_encoded, self.negative_queries_indices),
-                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim])
+                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim * 2])
 
             self.negative_replies_encoded = tf.reshape(tf.nn.embedding_lookup(
                 self.replies_encoded, self.negative_replies_indices),
-                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim])
+                [tf.shape(negative_queries_indices)[0], self.config.lstm_dim * 2])
 
             self.negative_inputs = tf.concat([
-                self.negative_queries_encoded, self.negative_distances,
-                tf.multiply(self.negative_queries_encoded, self.negative_replies_encoded),
-                self.negative_queries_encoded - self.negative_replies_encoded,
+                self.negative_queries_encoded,
+                self.negative_distances,
                 self.negative_replies_encoded], 1)
 
         with tf.variable_scope("prediction"):
             self.hidden_outputs = tf.layers.dense(
                 tf.concat([self.positive_inputs, self.negative_inputs], 0),
                 1024,
-                gelu,
+                tf.nn.relu,
                 name="dense_layer"
             )
             self.logits = tf.layers.dense(self.hidden_outputs,
@@ -215,11 +241,17 @@ class BestModel2(Model):
             self.predictions = tf.argmax(self.probs, 1)
 
         with tf.variable_scope("loss"):
-            self.loss = tf.reduce_mean(
+            loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.labels,
                                                            logits=self.logits))
-            self.train_step = self.optimizer.minimize(self.loss,
-                                                      global_step=self.global_step_tensor)
+            l2_vars = [v for v in tf.trainable_variables()
+                       if 'bias' not in v.name and 'embed' not in v.name]
+            l2_loss = tf.add_n([tf.to_float(tf.nn.l2_loss(v)) for v in l2_vars])
+
+            self.loss = tf.to_float(loss) + 1e-6 * l2_loss
+
+            self.train_step = self.optimizer.minimize(
+                self.loss, global_step=self.global_step_tensor)
 
         with tf.variable_scope("score"):
             correct_predictions = tf.equal(self.predictions, tf.argmax(self.labels, 1))
