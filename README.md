@@ -2,6 +2,9 @@
 
 Tensorflow implementation of text matching models
 
+## Version
+tensorflow == 1.9.0 
+
 ## Arguments 
 ### Path Arguments
 Parameter | Description  | Default

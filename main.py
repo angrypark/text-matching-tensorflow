@@ -26,10 +26,10 @@ args.add_argument("--name", type=str, default="start")
 args.add_argument("--config", type=str, default="")
 
 # Data loading and saving parameters
-args.add_argument("--train_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/")
-args.add_argument("--val_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/sol.tokenized.sent_piece_100K/sol.validation.txt")
-args.add_argument("--pretrained_embed_dir", type=str, default="/media/scatter/scatterdisk/pretrained_embedding/sent_piece_100K/fasttext.sent_piece_100K.256D")
-args.add_argument("--checkpoint_dir", type=str, default="/media/scatter/scatterdisk/reply_matching_model/runs/")
+args.add_argument("--train_dir", type=str, default="")
+args.add_argument("--val_dir", type=str, default="")
+args.add_argument("--pretrained_embed_dir", type=str, default="")
+args.add_argument("--checkpoint_dir", type=str, default="")
 
 # Model specification
 args.add_argument("--model", type=str, default="DualEncoderLSTM")
